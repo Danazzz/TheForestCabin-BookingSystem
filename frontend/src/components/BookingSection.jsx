@@ -1,142 +1,315 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { bookingApi, calendarApi, invoiceApi, paymentApi } from "../services/api";
+
+const PROPERTY_ID = "forest-cabin-main";
+
+const roomOptions = [
+  {
+    type: "Standard",
+    roomId: "standard-cabin-01",
+    roomType: "Standard Cabin",
+    capacity: 2,
+    pricePerNight: 700000,
+  },
+  {
+    type: "Deluxe",
+    roomId: "deluxe-cabin-01",
+    roomType: "Deluxe Cabin",
+    capacity: 2,
+    pricePerNight: 950000,
+  },
+  {
+    type: "Premium",
+    roomId: "premium-cabin-01",
+    roomType: "Premium Cabin",
+    capacity: 3,
+    pricePerNight: 1250000,
+  },
+];
+
+const promoOptions = {
+  "": { label: "No Promo", discount: 0 },
+  Honeymoon: { label: "Honeymoon Package", discount: 0 },
+  Family: { label: "Family Package", discount: 0.05 },
+  LongStay: { label: "Stay 3 Nights Discount", discount: 0.1 },
+};
+
+const paymentMethodLabels = {
+  va: "Virtual Account",
+  qris: "QRIS",
+  manual_transfer: "Manual Bank Transfer",
+};
+
+const currencyFormatter = new Intl.NumberFormat("id-ID", {
+  style: "currency",
+  currency: "IDR",
+  maximumFractionDigits: 0,
+});
+
+const getNights = (checkIn, checkOut) => {
+  if (!checkIn || !checkOut) {
+    return 0;
+  }
+
+  const startDate = new Date(checkIn);
+  const endDate = new Date(checkOut);
+  const diff = endDate.getTime() - startDate.getTime();
+
+  if (diff <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+};
+
+const normalizeError = (error) => {
+  if (Array.isArray(error.details) && error.details.length > 0) {
+    return `${error.message}: ${error.details.join(", ")}`;
+  }
+
+  return error.message || "Something went wrong";
+};
 
 export default function BookingSection({ highlight }) {
   const [form, setForm] = useState({
+    guestName: "",
+    guestEmail: "",
+    guestPhone: "",
     checkIn: "",
     checkOut: "",
     guests: 2,
     children: 0,
-    rooms: 1,
-    roomSelection: {
-      Standard: 0,
-      Deluxe: 0,
-      Premium: 0,
-    },
+    roomType: "Standard",
     promo: "",
+    paymentMethod: "manual_transfer",
   });
+  const [proofImage, setProofImage] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [bookingResult, setBookingResult] = useState(null);
+  const [invoice, setInvoice] = useState(null);
 
-  // ROOM CAPACITY
-  const roomCapacity = {
-    Standard: 2,
-    Deluxe: 2,
-    Premium: 3,
+  const selectedRoom = useMemo(
+    () => roomOptions.find((room) => room.type === form.roomType) || roomOptions[0],
+    [form.roomType]
+  );
+
+  const nights = getNights(form.checkIn, form.checkOut);
+  const totalGuests = Number(form.guests) + Number(form.children);
+  const discountRate = promoOptions[form.promo]?.discount || 0;
+  const subtotal = nights * selectedRoom.pricePerNight;
+  const totalAmount = Math.max(0, Math.round(subtotal - subtotal * discountRate));
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setForm((previous) => ({ ...previous, [name]: value }));
   };
 
-  // HANDLE INPUT
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm({ ...form, [name]: value });
-  };
+  const validateForm = () => {
+    if (!form.guestName || !form.guestEmail || !form.guestPhone) {
+      return "Please complete guest contact details.";
+    }
 
-  // HANDLE ROOM CHANGE
-  const handleRoomChange = (type, delta) => {
-    setForm((prev) => ({
-      ...prev,
-      roomSelection: {
-        ...prev.roomSelection,
-        [type]: Math.max(0, prev.roomSelection[type] + delta),
-      },
-    }));
-  };
-
-  // TOTAL ROOM SELECTED
-  const totalSelected =
-    form.roomSelection.Standard +
-    form.roomSelection.Deluxe +
-    form.roomSelection.Premium;
-
-  // TOTAL GUESTS
-  const totalGuests =
-    Number(form.guests) + Number(form.children);
-
-  // TOTAL CAPACITY
-  const totalCapacity =
-    form.roomSelection.Standard * roomCapacity.Standard +
-    form.roomSelection.Deluxe * roomCapacity.Deluxe +
-    form.roomSelection.Premium * roomCapacity.Premium;
-
-  // CHECK IF CAN ADD ROOM
-  const canAddRoom = (type) => {
-    const nextSelection = {
-      ...form.roomSelection,
-      [type]: form.roomSelection[type] + 1,
-    };
-
-    const nextCapacity =
-      nextSelection.Standard * roomCapacity.Standard +
-      nextSelection.Deluxe * roomCapacity.Deluxe +
-      nextSelection.Premium * roomCapacity.Premium;
-
-    return nextCapacity <= totalGuests + 2; // toleransi sedikit biar fleksibel
-  };
-
-  // SUBMIT
-  const handleSubmit = () => {
     if (!form.checkIn || !form.checkOut) {
-      alert("Please select dates");
-      return;
+      return "Please select check-in and check-out dates.";
     }
 
-    if (totalSelected === 0) {
-      alert("Please select at least 1 room");
-      return;
+    if (nights <= 0) {
+      return "Check-out date must be after check-in date.";
     }
 
-    if (totalSelected !== Number(form.rooms)) {
-      alert("Total selected rooms must match number of rooms");
-      return;
+    if (totalGuests <= 0) {
+      return "Please enter at least one guest.";
     }
 
-    if (totalGuests > totalCapacity) {
-      alert("Guests exceed room capacity");
-      return;
+    if (totalGuests > selectedRoom.capacity) {
+      return `${selectedRoom.roomType} can host up to ${selectedRoom.capacity} guests.`;
     }
 
-    console.log("BOOKING VALID:", form);
+    if (form.paymentMethod === "manual_transfer" && !proofImage) {
+      return "Please upload payment proof for manual transfer.";
+    }
+
+    return "";
   };
+
+  const refreshStatus = async (bookingId) => {
+    setRefreshing(true);
+    setError("");
+
+    try {
+      const bookingResponse = await bookingApi.getBooking(bookingId);
+      const paymentResponse = await paymentApi.getByBooking(bookingId);
+
+      setBookingResult((previous) => ({
+        ...previous,
+        booking: bookingResponse.data,
+        payments: paymentResponse.data,
+        payment: paymentResponse.data?.[0] || previous?.payment || null,
+      }));
+
+      try {
+        const invoiceResponse = await invoiceApi.getByBooking(bookingId);
+        setInvoice(invoiceResponse.data);
+      } catch (invoiceError) {
+        if (invoiceError.status !== 404) {
+          throw invoiceError;
+        }
+
+        setInvoice(null);
+      }
+    } catch (statusError) {
+      setError(normalizeError(statusError));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setSuccessMessage("");
+    setInvoice(null);
+
+    const validationError = validateForm();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const availabilityResponse = await calendarApi.checkAvailability({
+        roomId: selectedRoom.roomId,
+        checkIn: form.checkIn,
+        checkOut: form.checkOut,
+      });
+
+      if (!availabilityResponse.data.available) {
+        setError("This room is not available for the selected dates.");
+        return;
+      }
+
+      const bookingResponse = await bookingApi.createBooking({
+        guestName: form.guestName,
+        guestEmail: form.guestEmail,
+        guestPhone: form.guestPhone,
+        propertyId: PROPERTY_ID,
+        roomId: selectedRoom.roomId,
+        roomType: selectedRoom.roomType,
+        checkIn: form.checkIn,
+        checkOut: form.checkOut,
+        numberOfGuests: totalGuests,
+        totalAmount,
+        source: "direct",
+      });
+
+      const createdBooking = bookingResponse.data;
+      const paymentResponse = await paymentApi.createPayment(
+        createdBooking._id,
+        form.paymentMethod
+      );
+
+      let currentBooking = paymentResponse.data.booking;
+      let currentPayment = paymentResponse.data.payment;
+
+      if (form.paymentMethod === "manual_transfer") {
+        const uploadResponse = await paymentApi.uploadProof(currentPayment._id, proofImage);
+        currentBooking = uploadResponse.data.booking;
+        currentPayment = uploadResponse.data.payment;
+      }
+
+      setBookingResult({
+        booking: currentBooking,
+        payment: currentPayment,
+        payments: [currentPayment],
+        providerPayload: paymentResponse.data.providerPayload,
+      });
+
+      setSuccessMessage(
+        form.paymentMethod === "manual_transfer"
+          ? "Booking submitted. Your payment proof is waiting for admin approval."
+          : "Booking and payment request created. Please complete your payment."
+      );
+    } catch (submitError) {
+      setError(normalizeError(submitError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const latestPayment = bookingResult?.payment;
+  const providerPayload = bookingResult?.providerPayload;
 
   return (
-    <section id="booking" className="py-12 px-4 bg-white text-center">
-      <h2 className="text-2xl font-bold text-forest mb-6">
-        Book Your Stay
-      </h2>
+    <section id="booking" className="bg-white px-4 py-12 text-center">
+      <h2 className="mb-6 text-2xl font-bold text-forest">Book Your Stay</h2>
 
-      <div
-        className={`max-w-md mx-auto bg-cream p-6 rounded-xl shadow-md 
-        transition-all duration-500 
-        ${
-          highlight
-            ? "scale-105 shadow-2xl ring-2 ring-green-400"
-            : ""
+      <form
+        onSubmit={handleSubmit}
+        className={`mx-auto max-w-2xl rounded-xl bg-cream p-6 text-left shadow-md transition-all duration-500 ${
+          highlight ? "scale-105 shadow-2xl ring-2 ring-green-400" : ""
         }`}
       >
+        <div className="grid gap-3 md:grid-cols-3">
+          <input
+            type="text"
+            name="guestName"
+            value={form.guestName}
+            onChange={handleChange}
+            className="rounded border p-2"
+            placeholder="Guest name"
+          />
 
-        {/* DATE */}
-        <input
-          type="date"
-          name="checkIn"
-          value={form.checkIn}
-          onChange={handleChange}
-          className="w-full border p-2 mb-3 rounded"
-        />
+          <input
+            type="email"
+            name="guestEmail"
+            value={form.guestEmail}
+            onChange={handleChange}
+            className="rounded border p-2"
+            placeholder="Email"
+          />
 
-        <input
-          type="date"
-          name="checkOut"
-          value={form.checkOut}
-          onChange={handleChange}
-          className="w-full border p-2 mb-3 rounded"
-        />
+          <input
+            type="tel"
+            name="guestPhone"
+            value={form.guestPhone}
+            onChange={handleChange}
+            className="rounded border p-2"
+            placeholder="Phone"
+          />
+        </div>
 
-        {/* GUESTS */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <input
+            type="date"
+            name="checkIn"
+            value={form.checkIn}
+            onChange={handleChange}
+            className="rounded border p-2"
+          />
+
+          <input
+            type="date"
+            name="checkOut"
+            value={form.checkOut}
+            onChange={handleChange}
+            className="rounded border p-2"
+          />
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
           <input
             type="number"
             name="guests"
             min="1"
             value={form.guests}
             onChange={handleChange}
-            className="border p-2 rounded"
+            className="rounded border p-2"
             placeholder="Adults"
           />
 
@@ -146,94 +319,182 @@ export default function BookingSection({ highlight }) {
             min="0"
             value={form.children}
             onChange={handleChange}
-            className="border p-2 rounded"
+            className="rounded border p-2"
             placeholder="Kids"
           />
 
-          <input
-            type="number"
-            name="rooms"
-            min="1"
-            value={form.rooms}
+          <select
+            name="roomType"
+            value={form.roomType}
             onChange={handleChange}
-            className="border p-2 rounded"
-            placeholder="Rooms"
-          />
+            className="rounded border p-2"
+          >
+            {roomOptions.map((room) => (
+              <option key={room.type} value={room.type}>
+                {room.roomType}
+              </option>
+            ))}
+          </select>
+
+          <select
+            name="promo"
+            value={form.promo}
+            onChange={handleChange}
+            className="rounded border p-2"
+          >
+            {Object.entries(promoOptions).map(([value, promo]) => (
+              <option key={value || "none"} value={value}>
+                {promo.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* ROOM SELECTION */}
-        <div className="text-left mb-4">
-          <p className="text-sm font-semibold text-forest mb-2">
-            Select Rooms
-          </p>
+        <div className="mt-4 rounded border bg-white p-4 text-sm text-gray-700">
+          <div className="grid gap-2 md:grid-cols-4">
+            <p>
+              <span className="font-semibold text-forest">Room:</span>{" "}
+              {selectedRoom.roomType}
+            </p>
+            <p>
+              <span className="font-semibold text-forest">Capacity:</span>{" "}
+              {selectedRoom.capacity}
+            </p>
+            <p>
+              <span className="font-semibold text-forest">Nights:</span> {nights}
+            </p>
+            <p>
+              <span className="font-semibold text-forest">Total:</span>{" "}
+              {currencyFormatter.format(totalAmount)}
+            </p>
+          </div>
+        </div>
 
-          {["Standard", "Deluxe", "Premium"].map((type) => (
-            <div
-              key={type}
-              className="flex justify-between items-center bg-white p-3 rounded border mb-2"
-            >
-              <span className="text-sm">{type} Cabin</span>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <select
+            name="paymentMethod"
+            value={form.paymentMethod}
+            onChange={handleChange}
+            className="rounded border p-2"
+          >
+            {Object.entries(paymentMethodLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleRoomChange(type, -1)}
-                  className="px-2 bg-gray-200 rounded hover:bg-gray-300 transition"
-                >
-                  -
-                </button>
-
-                <span className="w-6 text-center font-semibold">
-                  {form.roomSelection[type]}
-                </span>
-
-                <button
-                  onClick={() => handleRoomChange(type, 1)}
-                  disabled={!canAddRoom(type)}
-                  className={`px-2 rounded text-white transition ${
-                    canAddRoom(type)
-                      ? "bg-green-700 hover:bg-green-800"
-                      : "bg-gray-300 cursor-not-allowed"
-                  }`}
-                >
-                  +
-                </button>
-              </div>
+          {form.paymentMethod === "manual_transfer" ? (
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => setProofImage(event.target.files?.[0] || null)}
+              className="rounded border bg-white p-2 text-sm"
+            />
+          ) : (
+            <div className="rounded border bg-white p-2 text-sm text-gray-600">
+              Payment instructions will appear after booking.
             </div>
-          ))}
+          )}
         </div>
 
-        {/* INFO */}
-        <div className="text-xs text-gray-500 mb-4 text-left">
-          <p>Total Guests: {totalGuests}</p>
-          <p>Total Capacity: {totalCapacity}</p>
-          <p>Total Rooms Selected: {totalSelected}</p>
-        </div>
+        {error ? (
+          <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
 
-        {/* PROMO */}
-        <select
-          name="promo"
-          value={form.promo}
-          onChange={handleChange}
-          className="w-full border p-2 mb-4 rounded"
-        >
-          <option value="">No Promo</option>
-          <option value="Honeymoon">Honeymoon Package</option>
-          <option value="Family">Family Package</option>
-          <option value="LongStay">
-            Stay 3 Nights Discount
-          </option>
-        </select>
+        {successMessage ? (
+          <div className="mt-4 rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            {successMessage}
+          </div>
+        ) : null}
 
-        {/* BUTTON */}
         <button
-          onClick={handleSubmit}
-          className="w-full bg-forest text-white py-2 rounded 
-          hover:bg-green-800 transition"
+          type="submit"
+          disabled={loading}
+          className="mt-4 w-full rounded bg-forest py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
         >
-          Check Availability
+          {loading ? "Submitting..." : "Create Booking"}
         </button>
 
-      </div>
+        {bookingResult?.booking ? (
+          <div className="mt-5 rounded border bg-white p-4 text-sm text-gray-700">
+            <div className="grid gap-2 md:grid-cols-2">
+              <p>
+                <span className="font-semibold text-forest">Booking ID:</span>{" "}
+                {bookingResult.booking._id}
+              </p>
+              <p>
+                <span className="font-semibold text-forest">Booking status:</span>{" "}
+                {bookingResult.booking.bookingStatus}
+              </p>
+              <p>
+                <span className="font-semibold text-forest">Payment status:</span>{" "}
+                {latestPayment?.paymentStatus || bookingResult.booking.paymentStatus}
+              </p>
+              <p>
+                <span className="font-semibold text-forest">Method:</span>{" "}
+                {paymentMethodLabels[latestPayment?.paymentMethod] || "-"}
+              </p>
+            </div>
+
+            {providerPayload?.paymentInstructions ? (
+              <div className="mt-3 rounded bg-cream p-3">
+                {providerPayload.paymentMethod === "va" ? (
+                  <p>
+                    VA {providerPayload.paymentInstructions.bankCode}:{" "}
+                    <span className="font-semibold">
+                      {providerPayload.paymentInstructions.virtualAccountNumber}
+                    </span>
+                  </p>
+                ) : null}
+
+                {providerPayload.paymentMethod === "qris" ? (
+                  <p>
+                    QRIS reference:{" "}
+                    <span className="font-semibold">
+                      {providerPayload.paymentInstructions.qrString}
+                    </span>
+                  </p>
+                ) : null}
+
+                {providerPayload.paymentMethod === "manual_transfer" ? (
+                  <p>
+                    Transfer to {providerPayload.paymentInstructions.bankName}{" "}
+                    <span className="font-semibold">
+                      {providerPayload.paymentInstructions.accountNumber}
+                    </span>{" "}
+                    under {providerPayload.paymentInstructions.accountName}.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => refreshStatus(bookingResult.booking._id)}
+              disabled={refreshing}
+              className="mt-3 rounded border border-forest px-4 py-2 font-semibold text-forest transition hover:bg-forest hover:text-white disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
+            >
+              {refreshing ? "Refreshing..." : "Refresh Status"}
+            </button>
+
+            {invoice ? (
+              <div className="mt-3 rounded border border-green-200 bg-green-50 p-3">
+                <p>
+                  <span className="font-semibold text-forest">Invoice:</span>{" "}
+                  {invoice.invoiceNumber}
+                </p>
+                <p>
+                  <span className="font-semibold text-forest">Invoice status:</span>{" "}
+                  {invoice.invoiceStatus}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </form>
     </section>
   );
 }
