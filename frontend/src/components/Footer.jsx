@@ -13,10 +13,6 @@ export default function Footer() {
             alt="Forest Cabin Logo"
             className="h-28 md:h-32 object-contain"
           />
-          <p className="mt-1 text-sm text-sm/80 max-w-xs">
-            For more information or booking inquiries, 
-            please contact us below.
-          </p>
         </div>
 
         {/* CONTACT */}
