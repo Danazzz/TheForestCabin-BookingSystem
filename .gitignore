@@ -7,10 +7,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Env files
+.env
+.env.*
+!.env.example
+
 node_modules
 dist
 dist-ssr
 *.local
+
+# Runtime uploads
+backend/uploads/*
+!backend/uploads/payment-proofs/
+backend/uploads/payment-proofs/*
+!backend/uploads/payment-proofs/.gitkeep
 
 # Editor directories and files
 .vscode/*
