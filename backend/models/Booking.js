@@ -9,8 +9,22 @@ const bookingStatuses = [
   "cancelled"
 ];
 
-const paymentStatuses = ["unpaid", "pending", "paid", "failed"];
+const paymentStatuses = [
+  "unpaid",
+  "pending",
+  "paid",
+  "failed",
+  "rejected",
+  "refund_required"
+];
 const bookingSources = ["direct", "airbnb", "agoda", "booking_com"];
+const rejectionReasons = [
+  "no_room_available",
+  "invalid_payment_proof",
+  "payment_not_received",
+  "guest_cancelled",
+  "other"
+];
 
 const bookingSchema = new mongoose.Schema(
   {
@@ -96,6 +110,26 @@ const bookingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Invoice",
       default: null
+    },
+    rejectionReason: {
+      type: String,
+      enum: rejectionReasons,
+      default: null,
+      index: true
+    },
+    adminNote: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    rejectedAt: {
+      type: Date,
+      default: null
+    },
+    rejectedBy: {
+      type: String,
+      trim: true,
+      default: null
     }
   },
   { timestamps: true }
@@ -117,3 +151,4 @@ module.exports = mongoose.model("Booking", bookingSchema);
 module.exports.bookingStatuses = bookingStatuses;
 module.exports.paymentStatuses = paymentStatuses;
 module.exports.bookingSources = bookingSources;
+module.exports.rejectionReasons = rejectionReasons;

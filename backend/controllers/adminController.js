@@ -3,7 +3,8 @@ const Payment = require("../models/Payment");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
-const { validateObjectId } = require("../utils/validators");
+const { validateEnum, validateObjectId } = require("../utils/validators");
+const { rejectionReasons } = require("../models/Booking");
 const {
   approvePayment: approvePaymentService,
   rejectPayment: rejectPaymentService
@@ -64,8 +65,8 @@ const approvePayment = asyncHandler(async (req, res) => {
   validateObjectId(req.params.paymentId, "payment id");
 
   const data = await approvePaymentService(req.params.paymentId, {
-    approvedBy: req.user?.id || req.body.approvedBy,
-    adminNote: req.body.adminNote
+    approvedBy: req.user?.id || req.body?.approvedBy,
+    adminNote: req.body?.adminNote
   });
 
   sendResponse(res, 200, "Payment approved successfully", data);
@@ -73,10 +74,13 @@ const approvePayment = asyncHandler(async (req, res) => {
 
 const rejectPayment = asyncHandler(async (req, res) => {
   validateObjectId(req.params.paymentId, "payment id");
+  const rejectionReason = req.body?.rejectionReason || "other";
+  validateEnum(rejectionReason, rejectionReasons, "rejectionReason");
 
   const data = await rejectPaymentService(req.params.paymentId, {
-    approvedBy: req.user?.id || req.body.approvedBy,
-    adminNote: req.body.adminNote
+    approvedBy: req.user?.id || req.body?.approvedBy,
+    adminNote: req.body?.adminNote,
+    rejectionReason
   });
 
   sendResponse(res, 200, "Payment rejected successfully", data);

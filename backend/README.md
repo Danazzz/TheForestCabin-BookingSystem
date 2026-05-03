@@ -190,8 +190,28 @@ Content-Type: application/json
 
 ```json
 {
+  "rejectionReason": "invalid_payment_proof",
   "adminNote": "Transfer receipt is unreadable. Please upload a clearer image."
 }
+```
+
+Reject because no room is available:
+
+```json
+{
+  "rejectionReason": "no_room_available",
+  "adminNote": "The selected room is not available for the requested dates."
+}
+```
+
+Allowed rejection reasons:
+
+```txt
+no_room_available
+invalid_payment_proof
+payment_not_received
+guest_cancelled
+other
 ```
 
 Approval behavior:
@@ -200,7 +220,9 @@ Approval behavior:
 - Calendar availability is checked before approval.
 - Approval creates a confirmed calendar event.
 - Approval generates a paid invoice.
-- If dates overlap an existing confirmed event for the same `roomId`, approval returns `409`.
+- If dates overlap an existing confirmed event for the same `roomId`, approval returns `409` with `Cannot approve booking because no room is available for the selected dates.`
+- Rejected bookings are not inserted into the calendar.
+- If a paid payment is rejected before approval, the booking and payment are marked `refund_required`.
 
 ## Invoice Requests
 

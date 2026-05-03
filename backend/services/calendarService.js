@@ -35,7 +35,7 @@ const getConflictingEvents = async (
 
 const assertAvailability = async (
   { roomId, checkIn, checkOut, excludeBookingId },
-  { session } = {}
+  { session, message } = {}
 ) => {
   const conflicts = await getConflictingEvents(
     { roomId, checkIn, checkOut, excludeBookingId },
@@ -44,7 +44,8 @@ const assertAvailability = async (
 
   if (conflicts.length > 0) {
     throw new AppError(
-      "Room is not available for the selected dates because it overlaps with an existing confirmed booking",
+      message ||
+        "Room is not available for the selected dates because it overlaps with an existing confirmed booking",
       409,
       conflicts.map((event) => ({
         calendarEventId: event._id,
@@ -74,7 +75,10 @@ const checkAvailability = async ({ roomId, checkIn, checkOut, excludeBookingId }
   };
 };
 
-const createCalendarEventForBooking = async (booking, { session } = {}) => {
+const createCalendarEventForBooking = async (
+  booking,
+  { session, availabilityMessage } = {}
+) => {
   const existingEvent = await CalendarEvent.findOne({
     bookingId: booking._id,
     status: "confirmed"
@@ -91,7 +95,10 @@ const createCalendarEventForBooking = async (booking, { session } = {}) => {
       checkOut: booking.checkOut,
       excludeBookingId: booking._id
     },
-    { session }
+    {
+      session,
+      message: availabilityMessage
+    }
   );
 
   const [calendarEvent] = await CalendarEvent.create(

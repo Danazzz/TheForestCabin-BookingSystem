@@ -9,6 +9,9 @@ const {
 const { generateInvoiceForBooking } = require("./invoiceService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
+const APPROVAL_UNAVAILABLE_MESSAGE =
+  "Cannot approve booking because no room is available for the selected dates.";
+const rejectionReasons = Booking.rejectionReasons;
 
 const getBookingApprovalPayload = async (bookingId, { session } = {}) => {
   const booking = await Booking.findById(bookingId)
@@ -60,7 +63,10 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
         checkOut: booking.checkOut,
         excludeBookingId: booking._id
       },
-      { session }
+      {
+        session,
+        message: APPROVAL_UNAVAILABLE_MESSAGE
+      }
     );
 
     payment.paymentStatus = "paid";
@@ -69,7 +75,10 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
     payment.adminNote = adminNote || payment.adminNote || null;
     await payment.save(sessionOption(session));
 
-    const calendarEvent = await createCalendarEventForBooking(booking, { session });
+    const calendarEvent = await createCalendarEventForBooking(booking, {
+      session,
+      availabilityMessage: APPROVAL_UNAVAILABLE_MESSAGE
+    });
     const invoice = await generateInvoiceForBooking(booking, payment, { session });
 
     booking.bookingStatus = "success";
@@ -82,8 +91,18 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
   });
 };
 
-const rejectPayment = async (paymentId, { adminNote, approvedBy } = {}) => {
+const rejectPayment = async (
+  paymentId,
+  { adminNote, approvedBy, rejectionReason = "other" } = {}
+) => {
   return runWithOptionalTransaction(async (session) => {
+    if (!rejectionReasons.includes(rejectionReason)) {
+      throw new AppError(
+        `rejectionReason must be one of: ${rejectionReasons.join(", ")}`,
+        400
+      );
+    }
+
     const payment = await Payment.findById(paymentId).session(session || null);
 
     if (!payment) {
@@ -96,18 +115,26 @@ const rejectPayment = async (paymentId, { adminNote, approvedBy } = {}) => {
       throw new AppError("Booking not found for this payment", 404);
     }
 
-    if (booking.bookingStatus === "success" || payment.paymentStatus === "paid") {
-      throw new AppError("Paid or successful bookings cannot be rejected", 409);
+    if (booking.bookingStatus === "success") {
+      throw new AppError("Successful bookings cannot be rejected from payment review", 409);
     }
 
-    payment.paymentStatus = "rejected";
-    payment.adminNote = adminNote || "Payment rejected by admin";
+    const rejectedPaymentStatus =
+      payment.paymentStatus === "paid" ? "refund_required" : "rejected";
+    const rejectedAdminNote = adminNote || rejectionReason;
+
+    payment.paymentStatus = rejectedPaymentStatus;
+    payment.adminNote = rejectedAdminNote;
     payment.approvedBy = approvedBy || "system-admin";
     payment.approvedAt = null;
     await payment.save(sessionOption(session));
 
     booking.bookingStatus = "rejected";
-    booking.paymentStatus = "failed";
+    booking.paymentStatus = rejectedPaymentStatus;
+    booking.rejectionReason = rejectionReason;
+    booking.adminNote = rejectedAdminNote;
+    booking.rejectedAt = new Date();
+    booking.rejectedBy = approvedBy || "system-admin";
     await booking.save(sessionOption(session));
 
     return getBookingApprovalPayload(booking._id, { session });
@@ -117,5 +144,6 @@ const rejectPayment = async (paymentId, { adminNote, approvedBy } = {}) => {
 module.exports = {
   approvePayment,
   rejectPayment,
-  getBookingApprovalPayload
+  getBookingApprovalPayload,
+  APPROVAL_UNAVAILABLE_MESSAGE
 };
