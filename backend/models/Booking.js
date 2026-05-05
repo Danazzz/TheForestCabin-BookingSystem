@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const bookingStatuses = [
-  "draft",
   "pending_payment",
   "waiting_admin_approval",
   "success",
@@ -13,11 +12,10 @@ const paymentStatuses = [
   "unpaid",
   "pending",
   "paid",
-  "failed",
   "rejected",
   "refund_required"
 ];
-const bookingSources = ["direct", "airbnb", "agoda", "booking_com"];
+const bookingSources = ["direct"];
 const rejectionReasons = [
   "no_room_available",
   "invalid_payment_proof",
@@ -28,6 +26,14 @@ const rejectionReasons = [
 
 const bookingSchema = new mongoose.Schema(
   {
+    bookingCode: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      trim: true,
+      index: true
+    },
     guestName: {
       type: String,
       required: [true, "guestName is required"],
@@ -49,18 +55,19 @@ const bookingSchema = new mongoose.Schema(
     },
     propertyId: {
       type: String,
-      required: [true, "propertyId is required"],
+      default: "the-forest-cabin",
       trim: true,
       index: true
     },
     roomId: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Room",
       required: [true, "roomId is required"],
-      trim: true,
       index: true
     },
     roomType: {
       type: String,
+      enum: ["deluxe", "suite", "superior"],
       required: [true, "roomType is required"],
       trim: true,
       maxlength: 120
@@ -86,7 +93,7 @@ const bookingSchema = new mongoose.Schema(
     bookingStatus: {
       type: String,
       enum: bookingStatuses,
-      default: "draft",
+      default: "pending_payment",
       index: true
     },
     paymentStatus: {
@@ -100,6 +107,11 @@ const bookingSchema = new mongoose.Schema(
       enum: bookingSources,
       default: "direct",
       index: true
+    },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Payment",
+      default: null
     },
     calendarEventId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -122,6 +134,10 @@ const bookingSchema = new mongoose.Schema(
       trim: true,
       default: null
     },
+    approvedAt: {
+      type: Date,
+      default: null
+    },
     rejectedAt: {
       type: Date,
       default: null
@@ -137,8 +153,20 @@ const bookingSchema = new mongoose.Schema(
 
 bookingSchema.index({ roomId: 1, checkIn: 1, checkOut: 1 });
 bookingSchema.index({ propertyId: 1, bookingStatus: 1 });
+bookingSchema.index({ roomType: 1, bookingStatus: 1 });
+
+const buildBookingCode = () => {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase();
+
+  return `TFC-${datePart}-${randomPart}`;
+};
 
 bookingSchema.pre("validate", function validateBookingDates(next) {
+  if (!this.bookingCode) {
+    this.bookingCode = buildBookingCode();
+  }
+
   if (this.checkIn && this.checkOut && this.checkIn >= this.checkOut) {
     next(new Error("checkOut must be later than checkIn"));
     return;

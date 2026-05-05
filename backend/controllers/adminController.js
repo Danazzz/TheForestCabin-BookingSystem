@@ -3,12 +3,13 @@ const Payment = require("../models/Payment");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
-const { validateEnum, validateObjectId } = require("../utils/validators");
+const { requireFields, validateEnum, validateObjectId } = require("../utils/validators");
 const { rejectionReasons } = require("../models/Booking");
 const {
   approvePayment: approvePaymentService,
   rejectPayment: rejectPaymentService
 } = require("../services/adminApprovalService");
+const { checkRoomAvailability } = require("../services/availabilityService");
 
 const attachLatestPayments = async (bookings) => {
   const bookingIds = bookings.map((booking) => booking._id);
@@ -42,12 +43,41 @@ const getWaitingApprovalBookings = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Waiting approval bookings retrieved successfully", data);
 });
 
+const getAdminBookings = asyncHandler(async (req, res) => {
+  const filters = {};
+
+  if (req.query.bookingStatus) {
+    filters.bookingStatus = req.query.bookingStatus;
+  }
+
+  if (req.query.paymentStatus) {
+    filters.paymentStatus = req.query.paymentStatus;
+  }
+
+  if (req.query.roomType && req.query.roomType !== "all") {
+    filters.roomType = req.query.roomType;
+  }
+
+  const bookings = await Booking.find(filters)
+    .populate("roomId")
+    .populate("paymentId")
+    .populate("invoiceId")
+    .populate("calendarEventId")
+    .sort({ createdAt: -1 });
+
+  const data = await attachLatestPayments(bookings);
+
+  sendResponse(res, 200, "Bookings retrieved successfully", data);
+});
+
 const getAdminBookingDetail = asyncHandler(async (req, res) => {
   validateObjectId(req.params.id, "booking id");
 
   const booking = await Booking.findById(req.params.id)
     .populate("calendarEventId")
-    .populate("invoiceId");
+    .populate("invoiceId")
+    .populate("paymentId")
+    .populate("roomId");
 
   if (!booking) {
     throw new AppError("Booking not found", 404);
@@ -86,9 +116,32 @@ const rejectPayment = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Payment rejected successfully", data);
 });
 
+const checkAdminAvailability = asyncHandler(async (req, res) => {
+  requireFields(req.body, ["roomId", "checkIn", "checkOut"]);
+  validateObjectId(req.body.roomId, "room id");
+
+  const result = await checkRoomAvailability({
+    roomId: req.body.roomId,
+    checkIn: req.body.checkIn,
+    checkOut: req.body.checkOut,
+    excludeBookingId: req.body.excludeBookingId
+  });
+
+  sendResponse(
+    res,
+    200,
+    result.available
+      ? "Room is available for the selected dates"
+      : "Room is not available for the selected dates",
+    result
+  );
+});
+
 module.exports = {
+  getAdminBookings,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
   approvePayment,
-  rejectPayment
+  rejectPayment,
+  checkAdminAvailability
 };

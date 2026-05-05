@@ -10,7 +10,7 @@ const { generateInvoiceForBooking } = require("./invoiceService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
 const APPROVAL_UNAVAILABLE_MESSAGE =
-  "Cannot approve booking because no room is available for the selected dates.";
+  "Cannot approve booking because the room is no longer available.";
 const rejectionReasons = Booking.rejectionReasons;
 
 const getBookingApprovalPayload = async (bookingId, { session } = {}) => {
@@ -72,6 +72,7 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
     payment.paymentStatus = "paid";
     payment.approvedBy = approvedBy || "system-admin";
     payment.approvedAt = new Date();
+    payment.rejectedAt = null;
     payment.adminNote = adminNote || payment.adminNote || null;
     await payment.save(sessionOption(session));
 
@@ -85,6 +86,10 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
     booking.paymentStatus = "paid";
     booking.calendarEventId = calendarEvent._id;
     booking.invoiceId = invoice._id;
+    booking.paymentId = payment._id;
+    booking.approvedAt = new Date();
+    booking.rejectedAt = null;
+    booking.rejectionReason = null;
     await booking.save(sessionOption(session));
 
     return getBookingApprovalPayload(booking._id, { session });
@@ -119,18 +124,18 @@ const rejectPayment = async (
       throw new AppError("Successful bookings cannot be rejected from payment review", 409);
     }
 
-    const rejectedPaymentStatus =
-      payment.paymentStatus === "paid" ? "refund_required" : "rejected";
+    const paymentWasPaid = payment.paymentStatus === "paid";
     const rejectedAdminNote = adminNote || rejectionReason;
 
-    payment.paymentStatus = rejectedPaymentStatus;
+    payment.paymentStatus = "rejected";
     payment.adminNote = rejectedAdminNote;
     payment.approvedBy = approvedBy || "system-admin";
     payment.approvedAt = null;
+    payment.rejectedAt = new Date();
     await payment.save(sessionOption(session));
 
     booking.bookingStatus = "rejected";
-    booking.paymentStatus = rejectedPaymentStatus;
+    booking.paymentStatus = paymentWasPaid ? "refund_required" : "rejected";
     booking.rejectionReason = rejectionReason;
     booking.adminNote = rejectedAdminNote;
     booking.rejectedAt = new Date();

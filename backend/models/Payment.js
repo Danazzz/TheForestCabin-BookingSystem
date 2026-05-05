@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-const paymentMethods = ["va", "qris", "manual_transfer"];
-const paymentStatuses = ["pending", "paid", "failed", "rejected", "refund_required"];
+const paymentMethods = ["manual_transfer", "qris", "virtual_account"];
+const paymentStatuses = ["pending", "paid", "rejected"];
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -49,6 +49,10 @@ const paymentSchema = new mongoose.Schema(
       default: null
     },
     approvedAt: {
+      type: Date,
+      default: null
+    },
+    rejectedAt: {
       type: Date,
       default: null
     }

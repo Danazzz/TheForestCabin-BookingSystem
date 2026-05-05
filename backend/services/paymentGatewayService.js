@@ -10,7 +10,7 @@ const buildReference = (prefix, bookingId) => {
 const createVirtualAccountPayment = async (booking) => {
   return {
     provider: "placeholder",
-    paymentMethod: "va",
+    paymentMethod: "virtual_account",
     transactionReference: buildReference("VA", booking._id),
     paymentInstructions: {
       bankCode: "BCA",
@@ -47,8 +47,8 @@ const handlePaymentWebhook = async (payload) => {
     throw new AppError("Payment not found for transactionReference", 404);
   }
 
-  if (!["paid", "failed"].includes(paymentStatus)) {
-    throw new AppError("paymentStatus must be paid or failed", 400);
+  if (!["paid", "rejected"].includes(paymentStatus)) {
+    throw new AppError("paymentStatus must be paid or rejected", 400);
   }
 
   payment.paymentStatus = paymentStatus;
@@ -61,7 +61,7 @@ const handlePaymentWebhook = async (payload) => {
           bookingStatus: "waiting_admin_approval"
         }
       : {
-          paymentStatus: "failed",
+          paymentStatus: "rejected",
           bookingStatus: "pending_payment"
         };
 

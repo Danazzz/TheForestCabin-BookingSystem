@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+const API_ROOT = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const API_BASE_URL = API_ROOT.endsWith("/api") ? API_ROOT : `${API_ROOT}/api`;
 
 const parseResponse = async (response) => {
   const payload = await response.json().catch(() => null);
@@ -34,6 +35,19 @@ export const bookingApi = {
     }),
 
   getBooking: (bookingId) => apiRequest(`/bookings/${bookingId}`),
+  getByCode: (bookingCode) => apiRequest(`/bookings/code/${bookingCode}`),
+};
+
+export const roomApi = {
+  listRooms: (params = {}) => {
+    const search = new URLSearchParams(params).toString();
+    return apiRequest(`/rooms${search ? `?${search}` : ""}`);
+  },
+
+  checkAvailability: (payload) => {
+    const search = new URLSearchParams(payload).toString();
+    return apiRequest(`/rooms/availability?${search}`);
+  },
 };
 
 export const paymentApi = {

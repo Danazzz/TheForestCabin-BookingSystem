@@ -30,7 +30,9 @@ const buildManualTransferPayload = (booking) => ({
 const createPayment = asyncHandler(async (req, res) => {
   validateObjectId(req.params.bookingId, "booking id");
   requireFields(req.body, ["paymentMethod"]);
-  validateEnum(req.body.paymentMethod, paymentMethods, "paymentMethod");
+  const paymentMethod =
+    req.body.paymentMethod === "va" ? "virtual_account" : req.body.paymentMethod;
+  validateEnum(paymentMethod, paymentMethods, "paymentMethod");
 
   const booking = await Booking.findById(req.params.bookingId);
 
@@ -56,21 +58,21 @@ const createPayment = asyncHandler(async (req, res) => {
 
   let providerPayload;
 
-  if (req.body.paymentMethod === "va") {
+  if (paymentMethod === "virtual_account") {
     providerPayload = await createVirtualAccountPayment(booking);
   }
 
-  if (req.body.paymentMethod === "qris") {
+  if (paymentMethod === "qris") {
     providerPayload = await createQrisPayment(booking);
   }
 
-  if (req.body.paymentMethod === "manual_transfer") {
+  if (paymentMethod === "manual_transfer") {
     providerPayload = buildManualTransferPayload(booking);
   }
 
   const payment = await Payment.create({
     bookingId: booking._id,
-    paymentMethod: req.body.paymentMethod,
+    paymentMethod,
     amount: booking.totalAmount,
     paymentStatus: "pending",
     transactionReference: providerPayload.transactionReference
@@ -78,6 +80,7 @@ const createPayment = asyncHandler(async (req, res) => {
 
   booking.bookingStatus = "pending_payment";
   booking.paymentStatus = "pending";
+  booking.paymentId = payment._id;
   await booking.save();
 
   sendResponse(res, 201, "Payment created successfully", {
@@ -104,20 +107,23 @@ const uploadPaymentProof = asyncHandler(async (req, res) => {
     throw new AppError("Payment is already paid", 409);
   }
 
-  const proofPath = `/uploads/payment-proofs/${req.file.filename}`;
+  const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const proofPath = `${baseUrl}/uploads/payment-proofs/${req.file.filename}`;
 
   payment.proofImageUrl = proofPath;
   payment.paymentStatus = "pending";
   payment.adminNote = null;
   payment.approvedAt = null;
   payment.approvedBy = null;
+  payment.rejectedAt = null;
   await payment.save();
 
   const booking = await Booking.findByIdAndUpdate(
     payment.bookingId,
     {
       bookingStatus: "waiting_admin_approval",
-      paymentStatus: "pending"
+      paymentStatus: "pending",
+      paymentId: payment._id
     },
     { new: true }
   );

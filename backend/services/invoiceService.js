@@ -1,4 +1,6 @@
 const Invoice = require("../models/Invoice");
+const Room = require("../models/Room");
+const AppError = require("../utils/AppError");
 
 const sessionOption = (session) => (session ? { session } : undefined);
 
@@ -27,10 +29,16 @@ const generateInvoiceForBooking = async (booking, payment, { session } = {}) => 
     return existingInvoice;
   }
 
+  const room = await Room.findById(booking.roomId).session(session || null);
+
+  if (!room) {
+    throw new AppError("Room not found for invoice generation", 404);
+  }
+
   const subtotal = booking.totalAmount;
   const items = [
     {
-      description: `${booking.roomType} booking (${booking.checkIn.toISOString().slice(0, 10)} to ${booking.checkOut.toISOString().slice(0, 10)})`,
+      description: `${room.name} ${room.roomNumber} (${booking.checkIn.toISOString().slice(0, 10)} to ${booking.checkOut.toISOString().slice(0, 10)})`,
       quantity: 1,
       unitPrice: subtotal,
       amount: subtotal
@@ -44,6 +52,10 @@ const generateInvoiceForBooking = async (booking, payment, { session } = {}) => 
         bookingId: booking._id,
         guestName: booking.guestName,
         guestEmail: booking.guestEmail,
+        roomType: booking.roomType,
+        roomNumber: room.roomNumber,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
         items,
         subtotal,
         totalAmount: booking.totalAmount,

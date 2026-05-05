@@ -1,19 +1,20 @@
-# Forest Cabin Booking Backend
+# The Forest Cabin Shared Backend
 
-Node.js, Express, MongoDB, and Mongoose backend for:
+Single Express/MongoDB API for both frontends:
 
-`Booking -> Payment -> Admin Approval -> Calendar Sync -> Invoice`
+- User booking frontend -> shared backend -> MongoDB
+- Admin frontend -> shared backend -> MongoDB
 
-## Setup
+## Local Setup
 
 ```bash
-cd backend
+cd /Users/danawardhiana/Projects/forestCabin-booking/backend
 npm install
 cp .env.example .env
 npm run dev
 ```
 
-Default base URL:
+Base URL:
 
 ```txt
 http://localhost:5000
@@ -31,14 +32,26 @@ GET /api/health
 PORT=5000
 NODE_ENV=development
 MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
-CORS_ORIGIN=http://localhost:5173
+CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
 UPLOAD_BASE_URL=http://localhost:5000
 MAX_UPLOAD_SIZE_MB=5
 ```
 
-## Booking Requests
+Payment proof upload currently uses Multer local storage at `/uploads/payment-proofs`. Set `UPLOAD_BASE_URL` to the deployed backend URL in production, or replace the upload middleware with Cloudinary storage before deploying to non-persistent hosts.
 
-Create a booking:
+## Rooms
+
+Rooms are not seeded automatically. Add real room inventory from the admin frontend Rooms page or through the `/api/rooms` API before testing availability or booking creation.
+
+## User API
+
+Check availability:
+
+```http
+GET /api/rooms/availability?roomType=deluxe&checkIn=2026-05-10&checkOut=2026-05-12
+```
+
+Create booking:
 
 ```http
 POST /api/bookings
@@ -47,43 +60,25 @@ Content-Type: application/json
 
 ```json
 {
-  "guestName": "Dana Wardhiana",
-  "guestEmail": "dana@example.com",
-  "guestPhone": "+6281234567890",
-  "propertyId": "forest-cabin-main",
-  "roomId": "cabin-01",
-  "roomType": "Forest Cabin Deluxe",
-  "checkIn": "2026-06-12",
-  "checkOut": "2026-06-14",
+  "guestName": "John Doe",
+  "guestEmail": "john@example.com",
+  "guestPhone": "+628123456789",
+  "roomType": "deluxe",
+  "checkIn": "2026-05-10",
+  "checkOut": "2026-05-12",
   "numberOfGuests": 2,
-  "totalAmount": 1800000,
+  "totalAmount": 1900000,
   "source": "direct"
 }
 ```
 
-List bookings:
+Check booking status:
 
 ```http
-GET /api/bookings
-GET /api/bookings?bookingStatus=waiting_admin_approval
-GET /api/bookings?propertyId=forest-cabin-main&roomId=cabin-01
+GET /api/bookings/code/TFC-20260503-ABCDE
 ```
 
-Get booking detail:
-
-```http
-GET /api/bookings/:id
-```
-
-Cancel booking:
-
-```http
-PATCH /api/bookings/:id/cancel
-```
-
-## Payment Requests
-
-Create a virtual account payment:
+Create payment:
 
 ```http
 POST /api/payments/:bookingId/create
@@ -92,24 +87,18 @@ Content-Type: application/json
 
 ```json
 {
-  "paymentMethod": "va"
-}
-```
-
-Create a QRIS payment:
-
-```json
-{
-  "paymentMethod": "qris"
-}
-```
-
-Create a manual transfer payment:
-
-```json
-{
   "paymentMethod": "manual_transfer"
 }
+```
+
+Other placeholder methods:
+
+```json
+{ "paymentMethod": "qris" }
+```
+
+```json
+{ "paymentMethod": "virtual_account" }
 ```
 
 Upload manual transfer proof:
@@ -119,56 +108,29 @@ POST /api/payments/:paymentId/upload-proof
 Content-Type: multipart/form-data
 ```
 
-Form field:
+Field:
 
 ```txt
-proofImage: payment-proof.jpg
+proofImage
 ```
 
-Accepted files: `jpg`, `jpeg`, `png`, `webp`.
-
-Get payments by booking:
+Get invoice after approval:
 
 ```http
-GET /api/payments/booking/:bookingId
+GET /api/invoices/booking/:bookingId
 ```
 
-Placeholder gateway webhook:
+## Admin API
+
+Auth is a permissive placeholder for now.
 
 ```http
-POST /api/payments/webhook
-Content-Type: application/json
-```
-
-```json
-{
-  "transactionReference": "VA-1710000000000-ABC123",
-  "paymentStatus": "paid"
-}
-```
-
-## Admin Requests
-
-Authentication is intentionally a placeholder for now. Admin routes accept optional headers:
-
-```txt
-x-admin-id: admin-user-id
-x-user-role: admin
-```
-
-Get bookings waiting for approval:
-
-```http
+GET /api/admin/bookings
 GET /api/admin/bookings/waiting-approval
-```
-
-Admin booking detail:
-
-```http
 GET /api/admin/bookings/:id
 ```
 
-Approve payment:
+Approve payment and booking:
 
 ```http
 PATCH /api/admin/payments/:paymentId/approve
@@ -181,7 +143,7 @@ Content-Type: application/json
 }
 ```
 
-Reject payment:
+Reject payment or booking:
 
 ```http
 PATCH /api/admin/payments/:paymentId/reject
@@ -190,111 +152,48 @@ Content-Type: application/json
 
 ```json
 {
-  "rejectionReason": "invalid_payment_proof",
-  "adminNote": "Transfer receipt is unreadable. Please upload a clearer image."
-}
-```
-
-Reject because no room is available:
-
-```json
-{
   "rejectionReason": "no_room_available",
-  "adminNote": "The selected room is not available for the requested dates."
+  "adminNote": "Selected room is no longer available."
 }
 ```
 
-Allowed rejection reasons:
-
-```txt
-no_room_available
-invalid_payment_proof
-payment_not_received
-guest_cancelled
-other
-```
-
-Approval behavior:
-
-- Manual transfer payments must have proof uploaded.
-- Calendar availability is checked before approval.
-- Approval creates a confirmed calendar event.
-- Approval generates a paid invoice.
-- If dates overlap an existing confirmed event for the same `roomId`, approval returns `409` with `Cannot approve booking because no room is available for the selected dates.`
-- Rejected bookings are not inserted into the calendar.
-- If a paid payment is rejected before approval, the booking and payment are marked `refund_required`.
-
-## Invoice Requests
-
-Get invoice by invoice ID:
+Calendar:
 
 ```http
-GET /api/invoices/:id
+GET /api/admin/calendar
+GET /api/admin/calendar/grid?startDate=2026-05-01&endDate=2026-05-31&roomType=all
 ```
 
-Get invoice by booking ID:
+Admin availability check:
 
 ```http
-GET /api/invoices/booking/:bookingId
-```
-
-PDF export is not implemented yet, but the invoice service has a placeholder for adding it later.
-
-## Calendar Requests
-
-Get events by property:
-
-```http
-GET /api/calendar/property/:propertyId
-GET /api/calendar/property/:propertyId?startDate=2026-06-01&endDate=2026-06-30
-```
-
-Get events by room:
-
-```http
-GET /api/calendar/room/:roomId
-GET /api/calendar/room/:roomId?startDate=2026-06-01&endDate=2026-06-30
-```
-
-Check room availability:
-
-```http
-POST /api/calendar/check-availability
+POST /api/admin/availability/check
 Content-Type: application/json
 ```
 
 ```json
 {
-  "roomId": "cabin-01",
-  "checkIn": "2026-06-12",
-  "checkOut": "2026-06-14"
+  "roomId": "ROOM_OBJECT_ID",
+  "checkIn": "2026-05-10",
+  "checkOut": "2026-05-12"
 }
 ```
 
-Overlap rule:
+## Availability Rule
 
-```js
-existing.startDate < new.checkOut && existing.endDate > new.checkIn
+Only `success` bookings block rooms:
+
+```txt
+existing.checkIn < new.checkOut AND existing.checkOut > new.checkIn
 ```
 
-## Response Format
+`waiting_admin_approval` bookings show in the admin calendar as pending, but do not permanently block availability. `rejected` and `cancelled` do not block availability.
 
-Successful responses:
-
-```json
-{
-  "success": true,
-  "message": "Payment approved successfully",
-  "data": {}
-}
-```
-
-Error responses:
+Approval creates the calendar event and invoice. If the room has become unavailable, approval returns:
 
 ```json
 {
   "success": false,
-  "message": "Room is not available for the selected dates",
-  "details": []
+  "message": "Cannot approve booking because the room is no longer available."
 }
 ```

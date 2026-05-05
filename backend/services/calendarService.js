@@ -1,78 +1,27 @@
 const Booking = require("../models/Booking");
 const CalendarEvent = require("../models/CalendarEvent");
+const Room = require("../models/Room");
 const AppError = require("../utils/AppError");
 const { validateDateRange, parseDate } = require("../utils/validators");
+const {
+  assertRoomAvailable,
+  checkRoomAvailability
+} = require("./availabilityService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
-
-const buildOverlapQuery = ({ roomId, startDate, endDate, excludeBookingId }) => {
-  const query = {
-    roomId,
-    status: "confirmed",
-    startDate: { $lt: endDate },
-    endDate: { $gt: startDate }
-  };
-
-  if (excludeBookingId) {
-    query.bookingId = { $ne: excludeBookingId };
-  }
-
-  return query;
-};
-
-const getConflictingEvents = async (
-  { roomId, checkIn, checkOut, excludeBookingId },
-  { session } = {}
-) => {
-  const { startDate, endDate } = validateDateRange(checkIn, checkOut);
-
-  return CalendarEvent.find(
-    buildOverlapQuery({ roomId, startDate, endDate, excludeBookingId })
-  )
-    .sort({ startDate: 1 })
-    .session(session || null);
-};
 
 const assertAvailability = async (
   { roomId, checkIn, checkOut, excludeBookingId },
   { session, message } = {}
 ) => {
-  const conflicts = await getConflictingEvents(
+  return assertRoomAvailable(
     { roomId, checkIn, checkOut, excludeBookingId },
-    { session }
+    { session, message }
   );
-
-  if (conflicts.length > 0) {
-    throw new AppError(
-      message ||
-        "Room is not available for the selected dates because it overlaps with an existing confirmed booking",
-      409,
-      conflicts.map((event) => ({
-        calendarEventId: event._id,
-        bookingId: event.bookingId,
-        roomId: event.roomId,
-        startDate: event.startDate,
-        endDate: event.endDate,
-        guestName: event.guestName
-      }))
-    );
-  }
-
-  return true;
 };
 
 const checkAvailability = async ({ roomId, checkIn, checkOut, excludeBookingId }) => {
-  const conflicts = await getConflictingEvents({
-    roomId,
-    checkIn,
-    checkOut,
-    excludeBookingId
-  });
-
-  return {
-    available: conflicts.length === 0,
-    conflicts
-  };
+  return checkRoomAvailability({ roomId, checkIn, checkOut, excludeBookingId });
 };
 
 const createCalendarEventForBooking = async (
@@ -101,12 +50,19 @@ const createCalendarEventForBooking = async (
     }
   );
 
+  const room = await Room.findById(booking.roomId).session(session || null);
+
+  if (!room) {
+    throw new AppError("Room not found for this booking", 404);
+  }
+
   const [calendarEvent] = await CalendarEvent.create(
     [
       {
         bookingId: booking._id,
         propertyId: booking.propertyId,
         roomId: booking.roomId,
+        roomNumber: room.roomNumber,
         roomType: booking.roomType,
         title: `Booking - ${booking.guestName}`,
         startDate: parseDate(booking.checkIn, "checkIn"),

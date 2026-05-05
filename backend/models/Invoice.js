@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-const invoiceStatuses = ["unpaid", "paid", "cancelled"];
-const paymentMethods = ["va", "qris", "manual_transfer"];
+const invoiceStatuses = ["paid", "cancelled"];
+const paymentMethods = ["manual_transfer", "qris", "virtual_account"];
 
 const invoiceItemSchema = new mongoose.Schema(
   {
@@ -54,6 +54,24 @@ const invoiceSchema = new mongoose.Schema(
       lowercase: true,
       trim: true
     },
+    roomType: {
+      type: String,
+      enum: ["deluxe", "suite", "superior"],
+      required: true
+    },
+    roomNumber: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    checkIn: {
+      type: Date,
+      required: true
+    },
+    checkOut: {
+      type: Date,
+      required: true
+    },
     items: {
       type: [invoiceItemSchema],
       default: []
@@ -76,7 +94,7 @@ const invoiceSchema = new mongoose.Schema(
     invoiceStatus: {
       type: String,
       enum: invoiceStatuses,
-      default: "unpaid",
+      default: "paid",
       index: true
     },
     issuedAt: {

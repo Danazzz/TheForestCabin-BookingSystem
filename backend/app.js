@@ -8,6 +8,7 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const calendarRoutes = require("./routes/calendarRoutes");
+const roomRoutes = require("./routes/roomRoutes");
 const { notFound, errorHandler } = require("./middlewares/errorMiddleware");
 
 const app = express();
@@ -36,6 +37,7 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/rooms", roomRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/calendar", calendarRoutes);

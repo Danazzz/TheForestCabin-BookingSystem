@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const calendarStatuses = ["confirmed", "cancelled"];
-const calendarSources = ["direct", "airbnb", "agoda", "booking_com"];
+const calendarSources = ["direct"];
 
 const calendarEventSchema = new mongoose.Schema(
   {
@@ -13,18 +13,24 @@ const calendarEventSchema = new mongoose.Schema(
     },
     propertyId: {
       type: String,
-      required: true,
+      default: "the-forest-cabin",
       trim: true,
       index: true
     },
     roomId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Room",
+      required: true,
+      index: true
+    },
+    roomNumber: {
       type: String,
       required: true,
-      trim: true,
-      index: true
+      trim: true
     },
     roomType: {
       type: String,
+      enum: ["deluxe", "suite", "superior"],
       required: true,
       trim: true
     },

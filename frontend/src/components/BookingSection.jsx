@@ -1,29 +1,26 @@
 import { useMemo, useState } from "react";
-import { bookingApi, calendarApi, invoiceApi, paymentApi } from "../services/api";
+import { bookingApi, invoiceApi, paymentApi, roomApi } from "../services/api";
 
 const PROPERTY_ID = "forest-cabin-main";
 
 const roomOptions = [
   {
-    type: "Standard",
-    roomId: "standard-cabin-01",
-    roomType: "Standard Cabin",
-    capacity: 2,
-    pricePerNight: 700000,
-  },
-  {
-    type: "Deluxe",
-    roomId: "deluxe-cabin-01",
-    roomType: "Deluxe Cabin",
+    type: "deluxe",
+    roomType: "Deluxe Room",
     capacity: 2,
     pricePerNight: 950000,
   },
   {
-    type: "Premium",
-    roomId: "premium-cabin-01",
-    roomType: "Premium Cabin",
-    capacity: 3,
+    type: "suite",
+    roomType: "Suite Room",
+    capacity: 4,
     pricePerNight: 1250000,
+  },
+  {
+    type: "superior",
+    roomType: "Superior Room",
+    capacity: 2,
+    pricePerNight: 750000,
   },
 ];
 
@@ -35,9 +32,9 @@ const promoOptions = {
 };
 
 const paymentMethodLabels = {
-  va: "Virtual Account",
-  qris: "QRIS",
   manual_transfer: "Manual Bank Transfer",
+  qris: "QRIS",
+  virtual_account: "Virtual Account",
 };
 
 const currencyFormatter = new Intl.NumberFormat("id-ID", {
@@ -79,16 +76,19 @@ export default function BookingSection({ highlight }) {
     checkOut: "",
     guests: 2,
     children: 0,
-    roomType: "Standard",
+    roomType: "deluxe",
     promo: "",
     paymentMethod: "manual_transfer",
   });
+  const [statusCode, setStatusCode] = useState("");
   const [proofImage, setProofImage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [bookingResult, setBookingResult] = useState(null);
+  const [availabilityResult, setAvailabilityResult] = useState(null);
   const [invoice, setInvoice] = useState(null);
 
   const selectedRoom = useMemo(
@@ -135,35 +135,72 @@ export default function BookingSection({ highlight }) {
     return "";
   };
 
-  const refreshStatus = async (bookingId) => {
+  const loadInvoiceIfAvailable = async (bookingId) => {
+    try {
+      const invoiceResponse = await invoiceApi.getByBooking(bookingId);
+      setInvoice(invoiceResponse.data);
+    } catch (invoiceError) {
+      if (invoiceError.status !== 404) {
+        throw invoiceError;
+      }
+
+      setInvoice(null);
+    }
+  };
+
+  const refreshStatus = async (bookingCode = bookingResult?.booking?.bookingCode) => {
+    if (!bookingCode) {
+      setError("Enter a booking code first.");
+      return;
+    }
+
     setRefreshing(true);
     setError("");
 
     try {
-      const bookingResponse = await bookingApi.getBooking(bookingId);
-      const paymentResponse = await paymentApi.getByBooking(bookingId);
+      const bookingResponse = await bookingApi.getByCode(bookingCode);
+      const booking = bookingResponse.data;
+      const paymentResponse = await paymentApi.getByBooking(booking._id);
 
       setBookingResult((previous) => ({
         ...previous,
-        booking: bookingResponse.data,
+        booking,
         payments: paymentResponse.data,
         payment: paymentResponse.data?.[0] || previous?.payment || null,
       }));
 
-      try {
-        const invoiceResponse = await invoiceApi.getByBooking(bookingId);
-        setInvoice(invoiceResponse.data);
-      } catch (invoiceError) {
-        if (invoiceError.status !== 404) {
-          throw invoiceError;
-        }
-
-        setInvoice(null);
-      }
+      await loadInvoiceIfAvailable(booking._id);
     } catch (statusError) {
       setError(normalizeError(statusError));
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleCheckAvailability = async () => {
+    setError("");
+    setSuccessMessage("");
+    setAvailabilityResult(null);
+
+    if (!form.checkIn || !form.checkOut || nights <= 0) {
+      setError("Select valid check-in and check-out dates first.");
+      return;
+    }
+
+    setCheckingAvailability(true);
+
+    try {
+      const response = await roomApi.checkAvailability({
+        roomType: selectedRoom.type,
+        checkIn: form.checkIn,
+        checkOut: form.checkOut,
+      });
+
+      setAvailabilityResult(response.data);
+    } catch (availabilityError) {
+      setError(normalizeError(availabilityError));
+    } finally {
+      setCheckingAvailability(false);
     }
   };
 
@@ -183,14 +220,16 @@ export default function BookingSection({ highlight }) {
     setLoading(true);
 
     try {
-      const availabilityResponse = await calendarApi.checkAvailability({
-        roomId: selectedRoom.roomId,
+      const availabilityResponse = await roomApi.checkAvailability({
+        roomType: selectedRoom.type,
         checkIn: form.checkIn,
         checkOut: form.checkOut,
       });
 
+      setAvailabilityResult(availabilityResponse.data);
+
       if (!availabilityResponse.data.available) {
-        setError("This room is not available for the selected dates.");
+        setError("This room type is not available for the selected dates.");
         return;
       }
 
@@ -199,8 +238,7 @@ export default function BookingSection({ highlight }) {
         guestEmail: form.guestEmail,
         guestPhone: form.guestPhone,
         propertyId: PROPERTY_ID,
-        roomId: selectedRoom.roomId,
-        roomType: selectedRoom.roomType,
+        roomType: selectedRoom.type,
         checkIn: form.checkIn,
         checkOut: form.checkOut,
         numberOfGuests: totalGuests,
@@ -223,17 +261,24 @@ export default function BookingSection({ highlight }) {
         currentPayment = uploadResponse.data.payment;
       }
 
+      currentBooking = {
+        ...currentBooking,
+        bookingCode: currentBooking.bookingCode || createdBooking.bookingCode,
+        roomId: createdBooking.roomId,
+      };
+
       setBookingResult({
         booking: currentBooking,
         payment: currentPayment,
         payments: [currentPayment],
         providerPayload: paymentResponse.data.providerPayload,
       });
+      setStatusCode(currentBooking.bookingCode || "");
 
       setSuccessMessage(
         form.paymentMethod === "manual_transfer"
-          ? "Booking submitted. Your payment proof is waiting for admin approval."
-          : "Booking and payment request created. Please complete your payment."
+          ? `Booking submitted. Your code is ${currentBooking.bookingCode}. Your payment proof is waiting for admin approval.`
+          : `Booking and payment request created. Your code is ${currentBooking.bookingCode}. Please complete your payment.`
       );
     } catch (submitError) {
       setError(normalizeError(submitError));
@@ -368,6 +413,21 @@ export default function BookingSection({ highlight }) {
               {currencyFormatter.format(totalAmount)}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={handleCheckAvailability}
+            disabled={checkingAvailability}
+            className="mt-3 rounded border border-forest px-4 py-2 font-semibold text-forest transition hover:bg-forest hover:text-white disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
+          >
+            {checkingAvailability ? "Checking..." : "Check Availability"}
+          </button>
+          {availabilityResult ? (
+            <p className="mt-3 rounded bg-cream p-3">
+              {availabilityResult.available
+                ? `${availabilityResult.availableCount} ${selectedRoom.roomType.toLowerCase()} unit(s) available for these dates.`
+                : `No ${selectedRoom.roomType.toLowerCase()} units available for these dates.`}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -422,8 +482,13 @@ export default function BookingSection({ highlight }) {
           <div className="mt-5 rounded border bg-white p-4 text-sm text-gray-700">
             <div className="grid gap-2 md:grid-cols-2">
               <p>
-                <span className="font-semibold text-forest">Booking ID:</span>{" "}
-                {bookingResult.booking._id}
+                <span className="font-semibold text-forest">Booking code:</span>{" "}
+                {bookingResult.booking.bookingCode}
+              </p>
+              <p>
+                <span className="font-semibold text-forest">Room:</span>{" "}
+                {bookingResult.booking.roomId?.roomNumber || "-"}{" "}
+                {bookingResult.booking.roomId?.name || selectedRoom.roomType}
               </p>
               <p>
                 <span className="font-semibold text-forest">Booking status:</span>{" "}
@@ -441,7 +506,7 @@ export default function BookingSection({ highlight }) {
 
             {providerPayload?.paymentInstructions ? (
               <div className="mt-3 rounded bg-cream p-3">
-                {providerPayload.paymentMethod === "va" ? (
+                {providerPayload.paymentMethod === "virtual_account" ? (
                   <p>
                     VA {providerPayload.paymentInstructions.bankCode}:{" "}
                     <span className="font-semibold">
@@ -473,7 +538,7 @@ export default function BookingSection({ highlight }) {
 
             <button
               type="button"
-              onClick={() => refreshStatus(bookingResult.booking._id)}
+              onClick={() => refreshStatus(bookingResult.booking.bookingCode)}
               disabled={refreshing}
               className="mt-3 rounded border border-forest px-4 py-2 font-semibold text-forest transition hover:bg-forest hover:text-white disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
             >
@@ -494,6 +559,26 @@ export default function BookingSection({ highlight }) {
             ) : null}
           </div>
         ) : null}
+
+        <div className="mt-5 rounded border bg-white p-4 text-sm text-gray-700">
+          <p className="font-semibold text-forest">Check Booking Status</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+            <input
+              value={statusCode}
+              onChange={(event) => setStatusCode(event.target.value)}
+              className="rounded border p-2 uppercase"
+              placeholder="TFC-YYYYMMDD-ABCDE"
+            />
+            <button
+              type="button"
+              onClick={() => refreshStatus(statusCode)}
+              disabled={refreshing}
+              className="rounded bg-forest px-4 py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
+            >
+              {refreshing ? "Checking..." : "Check"}
+            </button>
+          </div>
+        </div>
       </form>
     </section>
   );
