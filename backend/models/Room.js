@@ -44,6 +44,32 @@ const roomSchema = new mongoose.Schema(
       required: [true, "basePrice is required"],
       min: [0, "basePrice cannot be negative"]
     },
+    description: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 1000
+    },
+    imageUrl: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    altText: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 180
+    },
+    details: {
+      type: [String],
+      default: []
+    },
+    sortOrder: {
+      type: Number,
+      default: 0,
+      index: true
+    },
     status: {
       type: String,
       enum: roomStatuses,

@@ -16,9 +16,14 @@ const {
 const normalizeRoomPayload = (body) => {
   const roomType = Room.normalizeRoomType(body.roomType);
   const status = body.status || (body.isActive === false ? "inactive" : "active");
+  const sortOrder = Number(body.sortOrder || 0);
 
   if (!roomType) {
     throw new AppError("roomType is required", 400);
+  }
+
+  if (Number.isNaN(sortOrder)) {
+    throw new AppError("sortOrder must be a number", 400);
   }
 
   validateEnum(status, Room.roomStatuses, "status");
@@ -30,9 +35,36 @@ const normalizeRoomPayload = (body) => {
     capacity: validatePositiveNumber(body.capacity ?? body.maxGuestsPerUnit, "capacity"),
     childCapacity: validatePositiveNumber(body.childCapacity ?? 0, "childCapacity", true),
     basePrice: validatePositiveNumber(body.basePrice || 0, "basePrice", true),
+    description: String(body.description || "").trim(),
+    imageUrl: String(body.imageUrl || "").trim(),
+    altText: String(body.altText || "").trim(),
+    details: parseRoomDetails(body.details),
+    sortOrder,
     status
   };
 };
+
+const parseRoomDetails = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  return String(value)
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const getRoomTypeLabel = (roomType) =>
+  String(roomType || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 
 const listRooms = asyncHandler(async (req, res) => {
   const query = {};
@@ -61,10 +93,15 @@ const listRoomTypes = asyncHandler(async (req, res) => {
     if (!current) {
       typeMap.set(room.roomType, {
         roomType: room.roomType,
-        label: room.name,
+        label: room.name || getRoomTypeLabel(room.roomType),
         adultCapacity: room.capacity,
         childCapacity: room.childCapacity || 0,
         basePrice: room.basePrice,
+        description: room.description || "",
+        imageUrl: room.imageUrl || "",
+        altText: room.altText || "",
+        details: room.details || [],
+        sortOrder: room.sortOrder || 0,
         availableUnits: 1
       });
       return;
@@ -73,10 +110,19 @@ const listRoomTypes = asyncHandler(async (req, res) => {
     current.adultCapacity = Math.max(current.adultCapacity, room.capacity || 0);
     current.childCapacity = Math.max(current.childCapacity, room.childCapacity || 0);
     current.basePrice = Math.min(current.basePrice, room.basePrice || current.basePrice);
+    current.description = current.description || room.description || "";
+    current.imageUrl = current.imageUrl || room.imageUrl || "";
+    current.altText = current.altText || room.altText || "";
+    current.details = current.details.length > 0 ? current.details : room.details || [];
+    current.sortOrder = Math.min(current.sortOrder || 0, room.sortOrder || 0);
     current.availableUnits += 1;
   });
 
-  sendResponse(res, 200, "Room types retrieved successfully", Array.from(typeMap.values()));
+  const roomTypes = Array.from(typeMap.values()).sort((left, right) => (
+    left.sortOrder - right.sortOrder || left.roomType.localeCompare(right.roomType)
+  ));
+
+  sendResponse(res, 200, "Room types retrieved successfully", roomTypes);
 });
 
 const getRoom = asyncHandler(async (req, res) => {
@@ -144,6 +190,32 @@ const updateRoom = asyncHandler(async (req, res) => {
 
   if (req.body.basePrice !== undefined) {
     updates.basePrice = validatePositiveNumber(req.body.basePrice, "basePrice", true);
+  }
+
+  if (req.body.description !== undefined) {
+    updates.description = String(req.body.description || "").trim();
+  }
+
+  if (req.body.imageUrl !== undefined) {
+    updates.imageUrl = String(req.body.imageUrl || "").trim();
+  }
+
+  if (req.body.altText !== undefined) {
+    updates.altText = String(req.body.altText || "").trim();
+  }
+
+  if (req.body.details !== undefined) {
+    updates.details = parseRoomDetails(req.body.details);
+  }
+
+  if (req.body.sortOrder !== undefined) {
+    const sortOrder = Number(req.body.sortOrder || 0);
+
+    if (Number.isNaN(sortOrder)) {
+      throw new AppError("sortOrder must be a number", 400);
+    }
+
+    updates.sortOrder = sortOrder;
   }
 
   if (req.body.status !== undefined || req.body.isActive !== undefined) {

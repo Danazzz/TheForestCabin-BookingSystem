@@ -58,6 +58,9 @@ Content-Type: application/json
   "capacity": 2,
   "childCapacity": 2,
   "basePrice": 1500000,
+  "description": "Spacious family room with forest view.",
+  "imageUrl": "https://example.com/family-suite.jpg",
+  "details": ["1 king bed", "2 child beds", "Breakfast included"],
   "status": "active"
 }
 ```
@@ -76,28 +79,37 @@ Get a month-style room availability calendar for the user frontend:
 GET /api/rooms/availability-calendar?roomType=family_suite&startDate=2026-05-01&endDate=2026-05-31
 ```
 
-## Website Content
+## Promos and Gallery
 
-The user frontend reads public website content from the shared backend. If no content exists yet, the frontend keeps using local fallback content.
+The user frontend reads active promos and gallery images from the shared backend. Promo pricing is recalculated by the backend when `promoId` is sent with a booking.
 
-Public content:
-
-```http
-GET /api/content/promo
-GET /api/content/accommodation
-GET /api/content/gallery
-```
-
-Admin content management:
+Public promos:
 
 ```http
-GET /api/admin/content?type=promo&includeInactive=true
-POST /api/admin/content
-PATCH /api/admin/content/:id
-DELETE /api/admin/content/:id
+GET /api/promos/active
 ```
 
-`POST` and `PATCH` support either JSON with `imageUrl`, or `multipart/form-data` with optional image field `image`. Content types are `promo`, `accommodation`, and `gallery`.
+Admin promo management:
+
+```http
+GET /api/admin/promos?includeInactive=true
+POST /api/admin/promos
+PATCH /api/admin/promos/:id
+DELETE /api/admin/promos/:id
+```
+
+Promo `adjustmentType` values are `none`, `percentage_discount`, `fixed_discount`, `bundle_price`, and `surcharge`. `POST` and `PATCH` support either JSON with `imageUrl`, or `multipart/form-data` with optional image field `image`.
+
+Gallery:
+
+```http
+GET /api/gallery
+GET /api/admin/gallery
+POST /api/admin/gallery
+DELETE /api/admin/gallery/:id
+```
+
+Gallery upload uses `multipart/form-data` with optional image field `image`, or JSON/FormData `imageUrl`.
 
 ## User API
 

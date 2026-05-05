@@ -9,7 +9,8 @@ const adminRoutes = require("./routes/adminRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const calendarRoutes = require("./routes/calendarRoutes");
 const roomRoutes = require("./routes/roomRoutes");
-const contentRoutes = require("./routes/contentRoutes");
+const promoRoutes = require("./routes/promoRoutes");
+const galleryRoutes = require("./routes/galleryRoutes");
 const { notFound, errorHandler } = require("./middlewares/errorMiddleware");
 
 const app = express();
@@ -39,7 +40,8 @@ app.get("/api/health", (req, res) => {
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/rooms", roomRoutes);
-app.use("/api/content", contentRoutes);
+app.use("/api/promos", promoRoutes);
+app.use("/api/gallery", galleryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/calendar", calendarRoutes);

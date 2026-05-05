@@ -50,8 +50,10 @@ First add rooms from the admin frontend Rooms page, or create them through `POST
 9. `GET http://localhost:5000/api/bookings/code/:bookingCode`
 10. `GET http://localhost:5000/api/invoices/booking/:bookingId`
 11. `GET http://localhost:5000/api/admin/calendar/grid?startDate=2026-05-01&endDate=2026-05-31&roomType=all`
-12. `GET http://localhost:5000/api/content/promo`
-13. `GET http://localhost:5000/api/admin/content?includeInactive=true`
+12. `GET http://localhost:5000/api/promos/active`
+13. `GET http://localhost:5000/api/admin/promos?includeInactive=true`
+14. `GET http://localhost:5000/api/gallery`
+15. `GET http://localhost:5000/api/admin/gallery`
 
 Manual transfer proof upload must use `multipart/form-data` with field name `proofImage`.
-Website content image upload uses `multipart/form-data` with field name `image`.
+Promo and gallery image upload uses `multipart/form-data` with field name `image`.

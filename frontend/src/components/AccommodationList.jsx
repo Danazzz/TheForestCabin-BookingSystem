@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import AccommodationCard from "./AccommodationCard";
 import { accommodations } from "../data/accommodations";
-import { contentApi } from "../services/api";
+import { roomApi } from "../services/api";
 
 export default function AccommodationList() {
   const [activeIndex, setActiveIndex] = useState(null);
@@ -12,10 +12,10 @@ export default function AccommodationList() {
 
     const loadAccommodations = async () => {
       try {
-        const response = await contentApi.list("accommodation");
+        const response = await roomApi.listTypes();
         const nextItems = (response.data || []).map((item) => ({
-          id: item._id,
-          name: item.title,
+          id: item.roomType,
+          name: item.label || item.roomType,
           image: item.imageUrl || "/gallery/IMG_0748.jpg",
           description: item.description,
           details: item.details || [],

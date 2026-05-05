@@ -12,12 +12,16 @@ const {
   getCalendarGrid
 } = require("../controllers/calendarController");
 const {
-  listAdminContent,
-  getAdminContentItem,
-  createAdminContentItem,
-  updateAdminContentItem,
-  deleteAdminContentItem
-} = require("../controllers/contentController");
+  listAdminPromos,
+  createAdminPromo,
+  updateAdminPromo,
+  deleteAdminPromo
+} = require("../controllers/promoController");
+const {
+  listAdminGalleryImages,
+  createAdminGalleryImage,
+  deleteAdminGalleryImage
+} = require("../controllers/galleryController");
 const { protect, adminOnly } = require("../middlewares/authMiddleware");
 const { uploadContentImage } = require("../middlewares/uploadMiddleware");
 
@@ -34,13 +38,17 @@ router.get("/calendar", getAdminCalendarEvents);
 router.get("/calendar/grid", getCalendarGrid);
 router.post("/availability/check", checkAdminAvailability);
 router
-  .route("/content")
-  .get(listAdminContent)
-  .post(uploadContentImage, createAdminContentItem);
+  .route("/promos")
+  .get(listAdminPromos)
+  .post(uploadContentImage, createAdminPromo);
 router
-  .route("/content/:id")
-  .get(getAdminContentItem)
-  .patch(uploadContentImage, updateAdminContentItem)
-  .delete(deleteAdminContentItem);
+  .route("/promos/:id")
+  .patch(uploadContentImage, updateAdminPromo)
+  .delete(deleteAdminPromo);
+router
+  .route("/gallery")
+  .get(listAdminGalleryImages)
+  .post(uploadContentImage, createAdminGalleryImage);
+router.delete("/gallery/:id", deleteAdminGalleryImage);
 
 module.exports = router;

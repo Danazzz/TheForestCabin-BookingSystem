@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { contentApi } from "../services/api";
+import { galleryApi } from "../services/api";
 
 const fallbackImages = [
   {
@@ -28,7 +28,7 @@ export default function Gallery() {
 
     const loadGallery = async () => {
       try {
-        const response = await contentApi.list("gallery");
+        const response = await galleryApi.list();
         const nextImages = (response.data || []).map((item) => ({
           id: item._id,
           imageUrl: item.imageUrl,

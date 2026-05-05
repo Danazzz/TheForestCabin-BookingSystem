@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const contentTypes = ["promo", "accommodation", "gallery"];
+const contentTypes = ["gallery"];
 
 const contentItemSchema = new mongoose.Schema(
   {

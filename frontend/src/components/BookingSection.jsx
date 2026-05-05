@@ -1,15 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
-import { bookingApi, invoiceApi, paymentApi, roomApi } from "../services/api";
+import { bookingApi, invoiceApi, paymentApi, promoApi, roomApi } from "../services/api";
 
 const PROPERTY_ID = "forest-cabin-main";
-
-const promoOptions = {
-  "": { label: "No Promo", discount: 0 },
-  Honeymoon: { label: "Honeymoon Package", discount: 0 },
-  Family: { label: "Family Package", discount: 0.05 },
-  LongStay: { label: "Stay 3 Nights Discount", discount: 0.1 },
-};
 
 const paymentMethodLabels = {
   manual_transfer: "Manual Bank Transfer",
@@ -96,6 +89,54 @@ const normalizeError = (error) => {
   return error.message || "Something went wrong";
 };
 
+const applyPromoPricing = (subtotal, promo) => {
+  if (!promo || subtotal <= 0) {
+    return subtotal;
+  }
+
+  const value = Number(promo.adjustmentValue || 0);
+
+  if (promo.adjustmentType === "percentage_discount") {
+    return subtotal - subtotal * Math.min(value, 100) / 100;
+  }
+
+  if (promo.adjustmentType === "fixed_discount") {
+    return subtotal - value;
+  }
+
+  if (promo.adjustmentType === "bundle_price") {
+    return value;
+  }
+
+  if (promo.adjustmentType === "surcharge") {
+    return subtotal + value;
+  }
+
+  return subtotal;
+};
+
+const formatPromoRule = (promo) => {
+  const value = Number(promo.adjustmentValue || 0);
+
+  if (promo.adjustmentType === "percentage_discount") {
+    return `${value}% off`;
+  }
+
+  if (promo.adjustmentType === "fixed_discount") {
+    return `${currencyFormatter.format(value)} off`;
+  }
+
+  if (promo.adjustmentType === "bundle_price") {
+    return `Bundle ${currencyFormatter.format(value)}`;
+  }
+
+  if (promo.adjustmentType === "surcharge") {
+    return `Adds ${currencyFormatter.format(value)}`;
+  }
+
+  return "No price change";
+};
+
 export default function BookingSection({ highlight }) {
   const [form, setForm] = useState({
     guestName: "",
@@ -110,7 +151,9 @@ export default function BookingSection({ highlight }) {
     paymentMethod: "manual_transfer",
   });
   const [roomOptions, setRoomOptions] = useState([]);
+  const [promoOptions, setPromoOptions] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
+  const [promosLoading, setPromosLoading] = useState(true);
   const [statusCode, setStatusCode] = useState("");
   const [proofImage, setProofImage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -130,13 +173,16 @@ export default function BookingSection({ highlight }) {
     () => roomOptions.find((room) => room.type === form.roomType) || roomOptions[0] || null,
     [form.roomType, roomOptions]
   );
+  const selectedPromo = useMemo(
+    () => promoOptions.find((promo) => promo._id === form.promo) || null,
+    [form.promo, promoOptions]
+  );
 
   const nights = getNights(form.checkIn, form.checkOut);
   const adultGuests = Number(form.guests);
   const childGuests = Number(form.children);
-  const discountRate = promoOptions[form.promo]?.discount || 0;
   const subtotal = nights * (selectedRoom?.pricePerNight || 0);
-  const totalAmount = Math.max(0, Math.round(subtotal - subtotal * discountRate));
+  const totalAmount = Math.max(0, Math.round(applyPromoPricing(subtotal, selectedPromo)));
   const calendarCells = useMemo(
     () => buildCalendarCells(calendarMonth, availabilityCalendar?.dates || []),
     [availabilityCalendar, calendarMonth]
@@ -178,6 +224,36 @@ export default function BookingSection({ highlight }) {
     };
 
     loadRoomTypes();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadPromos = async () => {
+      setPromosLoading(true);
+
+      try {
+        const response = await promoApi.listActive();
+
+        if (!ignore) {
+          setPromoOptions(response.data || []);
+        }
+      } catch {
+        if (!ignore) {
+          setPromoOptions([]);
+        }
+      } finally {
+        if (!ignore) {
+          setPromosLoading(false);
+        }
+      }
+    };
+
+    loadPromos();
 
     return () => {
       ignore = true;
@@ -414,6 +490,7 @@ export default function BookingSection({ highlight }) {
         numberOfGuests: adultGuests,
         numberOfChildren: childGuests,
         totalAmount,
+        promoId: selectedPromo?._id || undefined,
         source: "direct",
       });
 
@@ -709,10 +786,14 @@ export default function BookingSection({ highlight }) {
             value={form.promo}
             onChange={handleChange}
             className="rounded border p-2"
+            disabled={promosLoading}
           >
-            {Object.entries(promoOptions).map(([value, promo]) => (
-              <option key={value || "none"} value={value}>
-                {promo.label}
+            <option value="">
+              {promosLoading ? "Loading promos..." : "No Promo"}
+            </option>
+            {promoOptions.map((promo) => (
+              <option key={promo._id} value={promo._id}>
+                {promo.name} ({formatPromoRule(promo)})
               </option>
             ))}
           </select>
@@ -740,6 +821,11 @@ export default function BookingSection({ highlight }) {
               {currencyFormatter.format(totalAmount)}
             </p>
           </div>
+          {selectedPromo ? (
+            <p className="mt-3 rounded bg-green-50 p-3 text-green-800">
+              Promo applied: {selectedPromo.name} · {formatPromoRule(selectedPromo)}
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={handleCheckAvailability}

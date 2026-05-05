@@ -1,5 +1,6 @@
 const Booking = require("../models/Booking");
 const Invoice = require("../models/Invoice");
+const Promo = require("../models/Promo");
 const Room = require("../models/Room");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
@@ -24,6 +25,53 @@ const getNights = (checkIn, checkOut) => {
   const milliseconds = new Date(checkOut).getTime() - new Date(checkIn).getTime();
 
   return Math.ceil(milliseconds / (1000 * 60 * 60 * 24));
+};
+
+const applyPromoPricing = (subtotal, promo) => {
+  if (!promo || subtotal <= 0) {
+    return subtotal;
+  }
+
+  const value = Number(promo.adjustmentValue || 0);
+
+  if (promo.adjustmentType === "percentage_discount") {
+    return subtotal - subtotal * Math.min(value, 100) / 100;
+  }
+
+  if (promo.adjustmentType === "fixed_discount") {
+    return subtotal - value;
+  }
+
+  if (promo.adjustmentType === "bundle_price") {
+    return value;
+  }
+
+  if (promo.adjustmentType === "surcharge") {
+    return subtotal + value;
+  }
+
+  return subtotal;
+};
+
+const getActivePromo = async (promoId) => {
+  validateObjectId(promoId, "promo id");
+  const promo = await Promo.findById(promoId);
+
+  if (!promo || !promo.isActive) {
+    throw new AppError("Selected promo is not available", 400);
+  }
+
+  const now = new Date();
+
+  if (promo.validFrom && promo.validFrom > now) {
+    throw new AppError("Selected promo is not active yet", 400);
+  }
+
+  if (promo.validUntil && promo.validUntil < now) {
+    throw new AppError("Selected promo has expired", 400);
+  }
+
+  return promo;
 };
 
 const createBooking = asyncHandler(async (req, res) => {
@@ -93,7 +141,11 @@ const createBooking = asyncHandler(async (req, res) => {
   }
 
   const nights = getNights(startDate, endDate);
-  const totalAmount = totalAmountFromRequest ?? room.basePrice * nights;
+  const subtotalAmount = room.basePrice * nights;
+  const promo = req.body.promoId ? await getActivePromo(req.body.promoId) : null;
+  const totalAmount = promo
+    ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
+    : totalAmountFromRequest ?? subtotalAmount;
 
   const booking = await Booking.create({
     guestName: req.body.guestName,
@@ -107,6 +159,10 @@ const createBooking = asyncHandler(async (req, res) => {
     numberOfGuests,
     numberOfChildren,
     totalAmount,
+    promoId: promo?._id || null,
+    promoName: promo?.name || "",
+    promoAdjustmentType: promo?.adjustmentType || "",
+    promoAdjustmentValue: promo?.adjustmentValue || 0,
     source,
     bookingStatus: "pending_payment",
     paymentStatus: "unpaid"

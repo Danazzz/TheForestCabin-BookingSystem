@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { contentApi } from "../services/api";
+import { promoApi } from "../services/api";
 
 const fallbackPromos = [
   {
@@ -28,7 +28,7 @@ export default function PromoCarousel() {
 
     const loadPromos = async () => {
       try {
-        const response = await contentApi.list("promo");
+        const response = await promoApi.listActive();
         const activePromos = response.data || [];
 
         if (!ignore && activePromos.length > 0) {

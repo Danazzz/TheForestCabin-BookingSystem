@@ -91,6 +91,10 @@ export const calendarApi = {
     }),
 };
 
-export const contentApi = {
-  list: (type) => apiRequest(`/content/${type}`),
+export const promoApi = {
+  listActive: () => apiRequest("/promos/active"),
+};
+
+export const galleryApi = {
+  list: () => apiRequest("/gallery"),
 };

@@ -94,6 +94,26 @@ const bookingSchema = new mongoose.Schema(
       required: [true, "totalAmount is required"],
       min: [0, "totalAmount cannot be negative"]
     },
+    promoId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Promo",
+      default: null
+    },
+    promoName: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    promoAdjustmentType: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    promoAdjustmentValue: {
+      type: Number,
+      default: 0,
+      min: [0, "promoAdjustmentValue cannot be negative"]
+    },
     bookingStatus: {
       type: String,
       enum: bookingStatuses,
