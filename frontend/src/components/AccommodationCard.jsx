@@ -3,11 +3,14 @@ export default function AccommodationCard({
   isActive,
   onToggle,
 }) {
+  const details = item.details || [];
+
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-md transition duration-300">
 
       <img
         src={item.image}
+        alt={item.altText || item.name}
         className="h-44 md:h-48 w-full object-cover"
       />
 
@@ -34,9 +37,10 @@ export default function AccommodationCard({
         >
           <div className="text-sm text-gray-700 bg-cream p-3 rounded-lg mt-2">
             <ul className="space-y-1">
-              {item.details.map((d, i) => (
+              {details.map((d, i) => (
                 <li key={i}>• {d}</li>
               ))}
+              {details.length === 0 ? <li>Details will be updated soon.</li> : null}
             </ul>
           </div>
         </div>

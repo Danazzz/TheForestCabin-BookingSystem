@@ -11,7 +11,15 @@ const {
   getAdminCalendarEvents,
   getCalendarGrid
 } = require("../controllers/calendarController");
+const {
+  listAdminContent,
+  getAdminContentItem,
+  createAdminContentItem,
+  updateAdminContentItem,
+  deleteAdminContentItem
+} = require("../controllers/contentController");
 const { protect, adminOnly } = require("../middlewares/authMiddleware");
+const { uploadContentImage } = require("../middlewares/uploadMiddleware");
 
 const router = express.Router();
 
@@ -25,5 +33,14 @@ router.patch("/payments/:paymentId/reject", rejectPayment);
 router.get("/calendar", getAdminCalendarEvents);
 router.get("/calendar/grid", getCalendarGrid);
 router.post("/availability/check", checkAdminAvailability);
+router
+  .route("/content")
+  .get(listAdminContent)
+  .post(uploadContentImage, createAdminContentItem);
+router
+  .route("/content/:id")
+  .get(getAdminContentItem)
+  .patch(uploadContentImage, updateAdminContentItem)
+  .delete(deleteAdminContentItem);
 
 module.exports = router;

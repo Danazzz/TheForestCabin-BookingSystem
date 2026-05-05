@@ -30,7 +30,6 @@ const calendarEventSchema = new mongoose.Schema(
     },
     roomType: {
       type: String,
-      enum: ["deluxe", "suite", "superior"],
       required: true,
       trim: true
     },

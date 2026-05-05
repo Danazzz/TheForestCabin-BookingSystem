@@ -67,7 +67,6 @@ const bookingSchema = new mongoose.Schema(
     },
     roomType: {
       type: String,
-      enum: ["deluxe", "suite", "superior"],
       required: [true, "roomType is required"],
       trim: true,
       maxlength: 120
@@ -84,6 +83,11 @@ const bookingSchema = new mongoose.Schema(
       type: Number,
       required: [true, "numberOfGuests is required"],
       min: [1, "numberOfGuests must be at least 1"]
+    },
+    numberOfChildren: {
+      type: Number,
+      default: 0,
+      min: [0, "numberOfChildren cannot be negative"]
     },
     totalAmount: {
       type: Number,

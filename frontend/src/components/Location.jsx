@@ -2,7 +2,7 @@ export default function Location() {
   return (
     <section
       id="location"
-      className="py-10 px-4 md:px-6 text-center bg-white"
+      className="py-10 px-4 md:px-6 text-center bg-white scroll-mt-24"
     >
       <h2 className="text-xl md:text-2xl font-bold text-forest mb-3">
         Our Location

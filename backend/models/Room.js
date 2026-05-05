@@ -1,7 +1,12 @@
 const mongoose = require("mongoose");
 
-const roomTypes = ["deluxe", "suite", "superior"];
 const roomStatuses = ["active", "maintenance", "inactive"];
+const normalizeRoomType = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const roomSchema = new mongoose.Schema(
   {
@@ -14,8 +19,8 @@ const roomSchema = new mongoose.Schema(
     },
     roomType: {
       type: String,
-      enum: roomTypes,
       required: [true, "roomType is required"],
+      set: normalizeRoomType,
       index: true
     },
     name: {
@@ -28,6 +33,11 @@ const roomSchema = new mongoose.Schema(
       type: Number,
       required: [true, "capacity is required"],
       min: [1, "capacity must be at least 1"]
+    },
+    childCapacity: {
+      type: Number,
+      default: 0,
+      min: [0, "childCapacity cannot be negative"]
     },
     basePrice: {
       type: Number,
@@ -47,5 +57,5 @@ const roomSchema = new mongoose.Schema(
 roomSchema.index({ roomType: 1, status: 1, roomNumber: 1 });
 
 module.exports = mongoose.model("Room", roomSchema);
-module.exports.roomTypes = roomTypes;
 module.exports.roomStatuses = roomStatuses;
+module.exports.normalizeRoomType = normalizeRoomType;

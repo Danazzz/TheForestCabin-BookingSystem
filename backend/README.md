@@ -43,12 +43,68 @@ Payment proof upload currently uses Multer local storage at `/uploads/payment-pr
 
 Rooms are not seeded automatically. Add real room inventory from the admin frontend Rooms page or through the `/api/rooms` API before testing availability or booking creation.
 
+Create a room with any room type:
+
+```http
+POST /api/rooms
+Content-Type: application/json
+```
+
+```json
+{
+  "roomNumber": "A101",
+  "roomType": "family_suite",
+  "name": "Family Suite",
+  "capacity": 2,
+  "childCapacity": 2,
+  "basePrice": 1500000,
+  "status": "active"
+}
+```
+
+`roomType` is dynamic. The backend normalizes it to a lowercase slug, so `Family Suite` becomes `family_suite`.
+
+Get active room types for frontend filters and booking forms:
+
+```http
+GET /api/rooms/types
+```
+
+Get a month-style room availability calendar for the user frontend:
+
+```http
+GET /api/rooms/availability-calendar?roomType=family_suite&startDate=2026-05-01&endDate=2026-05-31
+```
+
+## Website Content
+
+The user frontend reads public website content from the shared backend. If no content exists yet, the frontend keeps using local fallback content.
+
+Public content:
+
+```http
+GET /api/content/promo
+GET /api/content/accommodation
+GET /api/content/gallery
+```
+
+Admin content management:
+
+```http
+GET /api/admin/content?type=promo&includeInactive=true
+POST /api/admin/content
+PATCH /api/admin/content/:id
+DELETE /api/admin/content/:id
+```
+
+`POST` and `PATCH` support either JSON with `imageUrl`, or `multipart/form-data` with optional image field `image`. Content types are `promo`, `accommodation`, and `gallery`.
+
 ## User API
 
 Check availability:
 
 ```http
-GET /api/rooms/availability?roomType=deluxe&checkIn=2026-05-10&checkOut=2026-05-12
+GET /api/rooms/availability?roomType=family_suite&checkIn=2026-05-10&checkOut=2026-05-12
 ```
 
 Create booking:
@@ -63,10 +119,11 @@ Content-Type: application/json
   "guestName": "John Doe",
   "guestEmail": "john@example.com",
   "guestPhone": "+628123456789",
-  "roomType": "deluxe",
+  "roomType": "family_suite",
   "checkIn": "2026-05-10",
   "checkOut": "2026-05-12",
   "numberOfGuests": 2,
+  "numberOfChildren": 1,
   "totalAmount": 1900000,
   "source": "direct"
 }

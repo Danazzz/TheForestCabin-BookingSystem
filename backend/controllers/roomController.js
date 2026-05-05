@@ -8,20 +8,27 @@ const {
   validateObjectId,
   validatePositiveNumber
 } = require("../utils/validators");
-const { getAvailabilityByRoomType } = require("../services/availabilityService");
+const {
+  getAvailabilityByRoomType,
+  getAvailabilityCalendarByRoomType
+} = require("../services/availabilityService");
 
 const normalizeRoomPayload = (body) => {
-  const roomType = body.roomType;
+  const roomType = Room.normalizeRoomType(body.roomType);
   const status = body.status || (body.isActive === false ? "inactive" : "active");
 
-  validateEnum(roomType, Room.roomTypes, "roomType");
+  if (!roomType) {
+    throw new AppError("roomType is required", 400);
+  }
+
   validateEnum(status, Room.roomStatuses, "status");
 
   return {
     roomNumber: String(body.roomNumber || body.code || "").trim(),
     roomType,
     name: body.name,
-    capacity: validatePositiveNumber(body.capacity || body.maxGuestsPerUnit, "capacity"),
+    capacity: validatePositiveNumber(body.capacity ?? body.maxGuestsPerUnit, "capacity"),
+    childCapacity: validatePositiveNumber(body.childCapacity ?? 0, "childCapacity", true),
     basePrice: validatePositiveNumber(body.basePrice || 0, "basePrice", true),
     status
   };
@@ -31,8 +38,7 @@ const listRooms = asyncHandler(async (req, res) => {
   const query = {};
 
   if (req.query.roomType && req.query.roomType !== "all") {
-    validateEnum(req.query.roomType, Room.roomTypes, "roomType");
-    query.roomType = req.query.roomType;
+    query.roomType = Room.normalizeRoomType(req.query.roomType);
   }
 
   if (req.query.status) {
@@ -43,6 +49,34 @@ const listRooms = asyncHandler(async (req, res) => {
   const rooms = await Room.find(query).sort({ roomType: 1, roomNumber: 1 });
 
   sendResponse(res, 200, "Rooms retrieved successfully", rooms);
+});
+
+const listRoomTypes = asyncHandler(async (req, res) => {
+  const rooms = await Room.find({ status: "active" }).sort({ roomType: 1, roomNumber: 1 });
+  const typeMap = new Map();
+
+  rooms.forEach((room) => {
+    const current = typeMap.get(room.roomType);
+
+    if (!current) {
+      typeMap.set(room.roomType, {
+        roomType: room.roomType,
+        label: room.name,
+        adultCapacity: room.capacity,
+        childCapacity: room.childCapacity || 0,
+        basePrice: room.basePrice,
+        availableUnits: 1
+      });
+      return;
+    }
+
+    current.adultCapacity = Math.max(current.adultCapacity, room.capacity || 0);
+    current.childCapacity = Math.max(current.childCapacity, room.childCapacity || 0);
+    current.basePrice = Math.min(current.basePrice, room.basePrice || current.basePrice);
+    current.availableUnits += 1;
+  });
+
+  sendResponse(res, 200, "Room types retrieved successfully", Array.from(typeMap.values()));
 });
 
 const getRoom = asyncHandler(async (req, res) => {
@@ -80,8 +114,13 @@ const updateRoom = asyncHandler(async (req, res) => {
   }
 
   if (req.body.roomType !== undefined) {
-    validateEnum(req.body.roomType, Room.roomTypes, "roomType");
-    updates.roomType = req.body.roomType;
+    const roomType = Room.normalizeRoomType(req.body.roomType);
+
+    if (!roomType) {
+      throw new AppError("roomType is required", 400);
+    }
+
+    updates.roomType = roomType;
   }
 
   if (req.body.name !== undefined) {
@@ -90,8 +129,16 @@ const updateRoom = asyncHandler(async (req, res) => {
 
   if (req.body.capacity !== undefined || req.body.maxGuestsPerUnit !== undefined) {
     updates.capacity = validatePositiveNumber(
-      req.body.capacity || req.body.maxGuestsPerUnit,
+      req.body.capacity ?? req.body.maxGuestsPerUnit,
       "capacity"
+    );
+  }
+
+  if (req.body.childCapacity !== undefined) {
+    updates.childCapacity = validatePositiveNumber(
+      req.body.childCapacity,
+      "childCapacity",
+      true
     );
   }
 
@@ -135,10 +182,9 @@ const deleteRoom = asyncHandler(async (req, res) => {
 
 const getRoomAvailability = asyncHandler(async (req, res) => {
   requireFields(req.query, ["roomType", "checkIn", "checkOut"]);
-  validateEnum(req.query.roomType, Room.roomTypes, "roomType");
 
   const availability = await getAvailabilityByRoomType({
-    roomType: req.query.roomType,
+    roomType: Room.normalizeRoomType(req.query.roomType),
     checkIn: req.query.checkIn,
     checkOut: req.query.checkOut
   });
@@ -146,11 +192,25 @@ const getRoomAvailability = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Room availability retrieved successfully", availability);
 });
 
+const getRoomAvailabilityCalendar = asyncHandler(async (req, res) => {
+  requireFields(req.query, ["roomType", "startDate", "endDate"]);
+
+  const calendar = await getAvailabilityCalendarByRoomType({
+    roomType: req.query.roomType,
+    startDate: req.query.startDate,
+    endDate: req.query.endDate
+  });
+
+  sendResponse(res, 200, "Room availability calendar retrieved successfully", calendar);
+});
+
 module.exports = {
   listRooms,
+  listRoomTypes,
   getRoom,
   createRoom,
   updateRoom,
   deleteRoom,
-  getRoomAvailability
+  getRoomAvailability,
+  getRoomAvailabilityCalendar
 };

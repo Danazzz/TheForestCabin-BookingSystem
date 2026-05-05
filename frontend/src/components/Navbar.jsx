@@ -12,9 +12,11 @@ export default function Navbar() {
           />
         </a>
 
-        <div className="flex gap-6 text-sm font-medium">
+        <div className="flex max-w-[60vw] gap-4 overflow-x-auto whitespace-nowrap text-sm font-medium md:max-w-none md:gap-6">
           <a href="#promo" className="hover:text-cream">Promotions</a>
           <a href="#accommodations" className="hover:text-cream">Accommodations</a>
+          <a href="#availability-calendar" className="hover:text-cream">Calendar</a>
+          <a href="#location" className="hover:text-cream">Location</a>
           <a href="#gallery" className="hover:text-cream">Gallery</a>
           <a href="#footer" className="hover:text-cream">Contact Us</a>
         </div>

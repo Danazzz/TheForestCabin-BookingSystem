@@ -1,28 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { bookingApi, invoiceApi, paymentApi, roomApi } from "../services/api";
 
 const PROPERTY_ID = "forest-cabin-main";
-
-const roomOptions = [
-  {
-    type: "deluxe",
-    roomType: "Deluxe Room",
-    capacity: 2,
-    pricePerNight: 950000,
-  },
-  {
-    type: "suite",
-    roomType: "Suite Room",
-    capacity: 4,
-    pricePerNight: 1250000,
-  },
-  {
-    type: "superior",
-    roomType: "Superior Room",
-    capacity: 2,
-    pricePerNight: 750000,
-  },
-];
 
 const promoOptions = {
   "": { label: "No Promo", discount: 0 },
@@ -42,6 +22,55 @@ const currencyFormatter = new Intl.NumberFormat("id-ID", {
   currency: "IDR",
   maximumFractionDigits: 0,
 });
+
+const monthFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const calendarWeekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const toDateInput = (date) => date.toISOString().slice(0, 10);
+
+const getMonthStart = (date = new Date()) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+
+const getMonthEnd = (date) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+
+const shiftMonth = (date, offset) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + offset, 1));
+
+const buildCalendarCells = (monthDate, availabilityDates = []) => {
+  const monthStart = getMonthStart(monthDate);
+  const daysInMonth = getMonthEnd(monthDate).getUTCDate();
+  const leadingBlanks = monthStart.getUTCDay();
+  const availabilityByDate = new Map(
+    availabilityDates.map((day) => [day.date, day])
+  );
+
+  return [
+    ...Array.from({ length: leadingBlanks }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(
+        Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), index + 1)
+      );
+      const dateKey = toDateInput(date);
+
+      return {
+        date: dateKey,
+        dayNumber: index + 1,
+        ...(availabilityByDate.get(dateKey) || {
+          totalRooms: 0,
+          bookedCount: 0,
+          availableCount: 0,
+          isAvailable: false,
+        }),
+      };
+    }),
+  ];
+};
 
 const getNights = (checkIn, checkOut) => {
   if (!checkIn || !checkOut) {
@@ -76,10 +105,12 @@ export default function BookingSection({ highlight }) {
     checkOut: "",
     guests: 2,
     children: 0,
-    roomType: "deluxe",
+    roomType: "",
     promo: "",
     paymentMethod: "manual_transfer",
   });
+  const [roomOptions, setRoomOptions] = useState([]);
+  const [roomsLoading, setRoomsLoading] = useState(true);
   const [statusCode, setStatusCode] = useState("");
   const [proofImage, setProofImage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -89,22 +120,148 @@ export default function BookingSection({ highlight }) {
   const [successMessage, setSuccessMessage] = useState("");
   const [bookingResult, setBookingResult] = useState(null);
   const [availabilityResult, setAvailabilityResult] = useState(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => getMonthStart());
+  const [availabilityCalendar, setAvailabilityCalendar] = useState(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
   const [invoice, setInvoice] = useState(null);
 
   const selectedRoom = useMemo(
-    () => roomOptions.find((room) => room.type === form.roomType) || roomOptions[0],
-    [form.roomType]
+    () => roomOptions.find((room) => room.type === form.roomType) || roomOptions[0] || null,
+    [form.roomType, roomOptions]
   );
 
   const nights = getNights(form.checkIn, form.checkOut);
-  const totalGuests = Number(form.guests) + Number(form.children);
+  const adultGuests = Number(form.guests);
+  const childGuests = Number(form.children);
   const discountRate = promoOptions[form.promo]?.discount || 0;
-  const subtotal = nights * selectedRoom.pricePerNight;
+  const subtotal = nights * (selectedRoom?.pricePerNight || 0);
   const totalAmount = Math.max(0, Math.round(subtotal - subtotal * discountRate));
+  const calendarCells = useMemo(
+    () => buildCalendarCells(calendarMonth, availabilityCalendar?.dates || []),
+    [availabilityCalendar, calendarMonth]
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadRoomTypes = async () => {
+      setRoomsLoading(true);
+
+      try {
+        const response = await roomApi.listTypes();
+        const options = (response.data || []).map((roomType) => ({
+          type: roomType.roomType,
+          roomType: roomType.label || roomType.roomType,
+          capacity: roomType.adultCapacity || 1,
+          childCapacity: roomType.childCapacity || 0,
+          pricePerNight: roomType.basePrice || 0,
+          availableUnits: roomType.availableUnits || 0,
+        }));
+
+        if (!ignore) {
+          setRoomOptions(options);
+          setForm((previous) => ({
+            ...previous,
+            roomType: previous.roomType || options[0]?.type || "",
+          }));
+        }
+      } catch (roomTypeError) {
+        if (!ignore) {
+          setError(normalizeError(roomTypeError));
+        }
+      } finally {
+        if (!ignore) {
+          setRoomsLoading(false);
+        }
+      }
+    };
+
+    loadRoomTypes();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadAvailabilityCalendar = async () => {
+      if (!form.roomType) {
+        setAvailabilityCalendar(null);
+        setCalendarError("");
+        return;
+      }
+
+      setCalendarLoading(true);
+      setCalendarError("");
+
+      try {
+        const response = await roomApi.getAvailabilityCalendar({
+          roomType: form.roomType,
+          startDate: toDateInput(getMonthStart(calendarMonth)),
+          endDate: toDateInput(getMonthEnd(calendarMonth)),
+        });
+
+        if (!ignore) {
+          setAvailabilityCalendar(response.data);
+        }
+      } catch (calendarLoadError) {
+        if (!ignore) {
+          setAvailabilityCalendar(null);
+          setCalendarError(normalizeError(calendarLoadError));
+        }
+      } finally {
+        if (!ignore) {
+          setCalendarLoading(false);
+        }
+      }
+    };
+
+    loadAvailabilityCalendar();
+
+    return () => {
+      ignore = true;
+    };
+  }, [calendarMonth, form.roomType]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
     setForm((previous) => ({ ...previous, [name]: value }));
+
+    if (["roomType", "checkIn", "checkOut"].includes(name)) {
+      setAvailabilityResult(null);
+    }
+  };
+
+  const handleCalendarDateClick = (day) => {
+    if (!day) {
+      return;
+    }
+
+    setAvailabilityResult(null);
+    setForm((previous) => {
+      const canUseAsCheckout =
+        previous.checkIn && !previous.checkOut && day.date > previous.checkIn;
+
+      if (!day.isAvailable && !canUseAsCheckout) {
+        return previous;
+      }
+
+      if (!previous.checkIn || previous.checkOut || day.date <= previous.checkIn) {
+        return {
+          ...previous,
+          checkIn: day.date,
+          checkOut: "",
+        };
+      }
+
+      return {
+        ...previous,
+        checkOut: day.date,
+      };
+    });
   };
 
   const validateForm = () => {
@@ -120,12 +277,20 @@ export default function BookingSection({ highlight }) {
       return "Check-out date must be after check-in date.";
     }
 
-    if (totalGuests <= 0) {
-      return "Please enter at least one guest.";
+    if (!selectedRoom) {
+      return "No room types are available yet. Please contact admin or try again later.";
     }
 
-    if (totalGuests > selectedRoom.capacity) {
-      return `${selectedRoom.roomType} can host up to ${selectedRoom.capacity} guests.`;
+    if (adultGuests <= 0) {
+      return "Please enter at least one adult guest.";
+    }
+
+    if (adultGuests > selectedRoom.capacity) {
+      return `${selectedRoom.roomType} can host up to ${selectedRoom.capacity} adult guests.`;
+    }
+
+    if (childGuests > selectedRoom.childCapacity) {
+      return `${selectedRoom.roomType} can host up to ${selectedRoom.childCapacity} children.`;
     }
 
     if (form.paymentMethod === "manual_transfer" && !proofImage) {
@@ -187,6 +352,11 @@ export default function BookingSection({ highlight }) {
       return;
     }
 
+    if (!selectedRoom) {
+      setError("No room types are available yet.");
+      return;
+    }
+
     setCheckingAvailability(true);
 
     try {
@@ -241,7 +411,8 @@ export default function BookingSection({ highlight }) {
         roomType: selectedRoom.type,
         checkIn: form.checkIn,
         checkOut: form.checkOut,
-        numberOfGuests: totalGuests,
+        numberOfGuests: adultGuests,
+        numberOfChildren: childGuests,
         totalAmount,
         source: "direct",
       });
@@ -292,6 +463,152 @@ export default function BookingSection({ highlight }) {
 
   return (
     <section id="booking" className="bg-white px-4 py-12 text-center">
+      <div id="availability-calendar" className="mx-auto mb-8 max-w-4xl scroll-mt-24 rounded-xl border border-green-100 bg-cream p-4 text-left shadow-md md:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-green-700">
+              Availability
+            </p>
+            <h2 className="mt-1 text-xl font-bold text-forest">
+              {monthFormatter.format(calendarMonth)}
+            </h2>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <select
+              name="roomType"
+              value={form.roomType}
+              onChange={handleChange}
+              className="min-h-10 rounded border border-green-100 bg-white px-3 py-2 text-sm text-forest"
+              disabled={roomsLoading || roomOptions.length === 0}
+              aria-label="Availability room type"
+            >
+              {roomOptions.length === 0 ? (
+                <option value="">
+                  {roomsLoading ? "Loading room types..." : "No room types available"}
+                </option>
+              ) : null}
+              {roomOptions.map((room) => (
+                <option key={room.type} value={room.type}>
+                  {room.roomType}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCalendarMonth((previous) => shiftMonth(previous, -1))}
+                className="flex h-10 w-10 items-center justify-center rounded border border-green-100 bg-white text-forest transition hover:bg-green-50"
+                aria-label="Previous month"
+              >
+                <FiChevronLeft aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalendarMonth((previous) => shiftMonth(previous, 1))}
+                className="flex h-10 w-10 items-center justify-center rounded border border-green-100 bg-white text-forest transition hover:bg-green-50"
+                aria-label="Next month"
+              >
+                <FiChevronRight aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-600">
+          <span className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-green-100 ring-1 ring-green-200" />
+            Available
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-red-50 ring-1 ring-red-100" />
+            Full
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-forest" />
+            Selected
+          </span>
+          {availabilityCalendar ? (
+            <span className="ml-auto text-gray-500">
+              {availabilityCalendar.totalRooms} unit(s)
+            </span>
+          ) : null}
+        </div>
+
+        {calendarError ? (
+          <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {calendarError}
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500">
+          {calendarWeekdays.map((weekday) => (
+            <div key={weekday} className="py-2">
+              {weekday}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {calendarCells.map((day, index) => {
+            if (!day) {
+              return (
+                <div
+                  key={`empty-${index}`}
+                  className="min-h-[4.75rem] rounded border border-transparent"
+                />
+              );
+            }
+
+            const isCheckIn = day.date === form.checkIn;
+            const isCheckOut = day.date === form.checkOut;
+            const isInRange =
+              form.checkIn &&
+              form.checkOut &&
+              day.date > form.checkIn &&
+              day.date < form.checkOut;
+            const canSelectAsCheckout =
+              form.checkIn && !form.checkOut && day.date > form.checkIn;
+            const selectable = day.isAvailable || canSelectAsCheckout;
+            const selectedClasses =
+              isCheckIn || isCheckOut
+                ? "border-forest bg-forest text-white shadow"
+                : isInRange
+                  ? "border-green-200 bg-green-100 text-forest"
+                  : day.totalRooms === 0
+                    ? "border-gray-100 bg-gray-50 text-gray-400"
+                    : day.isAvailable
+                      ? "border-green-200 bg-white text-forest hover:border-forest hover:bg-green-50"
+                      : canSelectAsCheckout
+                        ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300"
+                        : "border-red-100 bg-red-50 text-red-400";
+
+            return (
+              <button
+                key={day.date}
+                type="button"
+                onClick={() => handleCalendarDateClick(day)}
+                disabled={!selectable}
+                className={`flex min-h-[4.75rem] flex-col justify-between rounded border p-2 text-left text-xs transition disabled:cursor-default ${selectedClasses}`}
+                aria-label={`${day.date}, ${day.availableCount} units available`}
+              >
+                <span className="text-sm font-bold">{day.dayNumber}</span>
+                <span className="leading-tight">
+                  {day.totalRooms > 0
+                    ? `${day.availableCount}/${day.totalRooms} unit`
+                    : "-"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {calendarLoading ? (
+          <p className="mt-3 text-sm text-gray-500">Loading availability...</p>
+        ) : null}
+      </div>
+
       <h2 className="mb-6 text-2xl font-bold text-forest">Book Your Stay</h2>
 
       <form
@@ -373,7 +690,13 @@ export default function BookingSection({ highlight }) {
             value={form.roomType}
             onChange={handleChange}
             className="rounded border p-2"
+            disabled={roomsLoading || roomOptions.length === 0}
           >
+            {roomOptions.length === 0 ? (
+              <option value="">
+                {roomsLoading ? "Loading room types..." : "No room types available"}
+              </option>
+            ) : null}
             {roomOptions.map((room) => (
               <option key={room.type} value={room.type}>
                 {room.roomType}
@@ -399,11 +722,15 @@ export default function BookingSection({ highlight }) {
           <div className="grid gap-2 md:grid-cols-4">
             <p>
               <span className="font-semibold text-forest">Room:</span>{" "}
-              {selectedRoom.roomType}
+              {selectedRoom?.roomType || "-"}
             </p>
             <p>
-              <span className="font-semibold text-forest">Capacity:</span>{" "}
-              {selectedRoom.capacity}
+              <span className="font-semibold text-forest">Adults:</span>{" "}
+              {selectedRoom?.capacity ?? "-"}
+            </p>
+            <p>
+              <span className="font-semibold text-forest">Children:</span>{" "}
+              {selectedRoom?.childCapacity ?? "-"}
             </p>
             <p>
               <span className="font-semibold text-forest">Nights:</span> {nights}
@@ -424,8 +751,8 @@ export default function BookingSection({ highlight }) {
           {availabilityResult ? (
             <p className="mt-3 rounded bg-cream p-3">
               {availabilityResult.available
-                ? `${availabilityResult.availableCount} ${selectedRoom.roomType.toLowerCase()} unit(s) available for these dates.`
-                : `No ${selectedRoom.roomType.toLowerCase()} units available for these dates.`}
+                ? `${availabilityResult.availableCount} ${(selectedRoom?.roomType || "room").toLowerCase()} unit(s) available for these dates.`
+                : `No ${(selectedRoom?.roomType || "room").toLowerCase()} units available for these dates.`}
             </p>
           ) : null}
         </div>
@@ -472,7 +799,7 @@ export default function BookingSection({ highlight }) {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || roomsLoading || roomOptions.length === 0}
           className="mt-4 w-full rounded bg-forest py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
         >
           {loading ? "Submitting..." : "Create Booking"}

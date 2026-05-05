@@ -56,7 +56,6 @@ const invoiceSchema = new mongoose.Schema(
     },
     roomType: {
       type: String,
-      enum: ["deluxe", "suite", "superior"],
       required: true
     },
     roomNumber: {

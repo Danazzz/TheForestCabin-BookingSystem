@@ -1,7 +1,7 @@
 const Booking = require("../models/Booking");
 const Room = require("../models/Room");
 const AppError = require("../utils/AppError");
-const { validateDateRange } = require("../utils/validators");
+const { parseDate, validateDateRange } = require("../utils/validators");
 
 const sessionOption = (session) => (session ? { session } : {});
 
@@ -91,7 +91,7 @@ const getRoomsByType = async ({ roomType, includeInactive = false } = {}) => {
   const query = {};
 
   if (roomType && roomType !== "all") {
-    query.roomType = roomType;
+    query.roomType = Room.normalizeRoomType(roomType);
   }
 
   if (!includeInactive) {
@@ -135,17 +135,100 @@ const getAvailabilityByRoomType = async ({ roomType, checkIn, checkOut }) => {
 };
 
 const findAvailableRoomByType = async ({ roomType, checkIn, checkOut }) => {
-  const availability = await getAvailabilityByRoomType({ roomType, checkIn, checkOut });
+  const normalizedRoomType = Room.normalizeRoomType(roomType);
+  const availability = await getAvailabilityByRoomType({
+    roomType: normalizedRoomType,
+    checkIn,
+    checkOut
+  });
 
   if (!availability.available) {
     throw new AppError("No room is available for the selected room type and dates", 409, {
-      roomType,
+      roomType: normalizedRoomType,
       checkIn,
       checkOut
     });
   }
 
   return availability.availableRooms[0];
+};
+
+const startOfUtcDay = (value, fieldName) => {
+  const date = parseDate(value, fieldName);
+  date.setUTCHours(0, 0, 0, 0);
+
+  return date;
+};
+
+const addDays = (date, days) => {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+
+  return next;
+};
+
+const toDateOnly = (date) => date.toISOString().slice(0, 10);
+
+const getAvailabilityCalendarByRoomType = async ({ roomType, startDate, endDate }) => {
+  const normalizedRoomType = Room.normalizeRoomType(roomType);
+
+  if (!normalizedRoomType) {
+    throw new AppError("roomType is required", 400);
+  }
+
+  const calendarStart = startOfUtcDay(startDate, "startDate");
+  const calendarEnd = startOfUtcDay(endDate, "endDate");
+
+  if (calendarStart > calendarEnd) {
+    throw new AppError("endDate must be the same as or later than startDate", 400);
+  }
+
+  const rooms = await getRoomsByType({ roomType: normalizedRoomType });
+  const roomIds = rooms.map((room) => room._id);
+  const rangeEndExclusive = addDays(calendarEnd, 1);
+
+  const blockingBookings = await Booking.find({
+    roomId: { $in: roomIds },
+    bookingStatus: "success",
+    checkIn: { $lt: rangeEndExclusive },
+    checkOut: { $gt: calendarStart }
+  }).select("roomId bookingCode guestName checkIn checkOut bookingStatus");
+
+  const dates = [];
+  let cursor = new Date(calendarStart);
+
+  while (cursor <= calendarEnd) {
+    const dayStart = new Date(cursor);
+    const dayEnd = addDays(dayStart, 1);
+    const blockedRoomIds = new Set();
+
+    blockingBookings.forEach((booking) => {
+      if (booking.checkIn < dayEnd && booking.checkOut > dayStart) {
+        blockedRoomIds.add(String(booking.roomId));
+      }
+    });
+
+    const bookedCount = blockedRoomIds.size;
+    const availableCount = Math.max(rooms.length - bookedCount, 0);
+
+    dates.push({
+      date: toDateOnly(dayStart),
+      totalRooms: rooms.length,
+      bookedCount,
+      availableCount,
+      isAvailable: availableCount > 0
+    });
+
+    cursor = dayEnd;
+  }
+
+  return {
+    roomType: normalizedRoomType,
+    startDate: calendarStart,
+    endDate: calendarEnd,
+    totalRooms: rooms.length,
+    dates
+  };
 };
 
 const assertRoomExistsAndActive = async (roomId, { session } = {}) => {
@@ -165,6 +248,7 @@ module.exports = {
   assertRoomAvailable,
   getRoomsByType,
   getAvailabilityByRoomType,
+  getAvailabilityCalendarByRoomType,
   findAvailableRoomByType,
   assertRoomExistsAndActive,
   sessionOption

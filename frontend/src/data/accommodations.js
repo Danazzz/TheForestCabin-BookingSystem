@@ -2,7 +2,7 @@ export const accommodations = [
   {
     id: 1,
     name: "Standard Cabin",
-    image: "/cabin.jpg",
+    image: "/gallery/IMG_0743.jpg",
     description: "Cozy wooden cabin surrounded by nature.",
     details: [
       "1 Queen Bed",
@@ -14,7 +14,7 @@ export const accommodations = [
   {
     id: 2,
     name: "Deluxe Cabin",
-    image: "/cabin.jpg",
+    image: "/gallery/IMG_0748.jpg",
     description: "More spacious with premium comfort.",
     details: [
       "King Bed",
@@ -26,7 +26,7 @@ export const accommodations = [
   {
     id: 3,
     name: "Premium Cabin",
-    image: "/cabin.jpg",
+    image: "/gallery/IMG_0750.jpg",
     description: "Luxury stay with best forest view.",
     details: [
       "King Bed",

@@ -44,9 +44,16 @@ export const roomApi = {
     return apiRequest(`/rooms${search ? `?${search}` : ""}`);
   },
 
+  listTypes: () => apiRequest("/rooms/types"),
+
   checkAvailability: (payload) => {
     const search = new URLSearchParams(payload).toString();
     return apiRequest(`/rooms/availability?${search}`);
+  },
+
+  getAvailabilityCalendar: (payload) => {
+    const search = new URLSearchParams(payload).toString();
+    return apiRequest(`/rooms/availability-calendar?${search}`);
   },
 };
 
@@ -82,4 +89,8 @@ export const calendarApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+};
+
+export const contentApi = {
+  list: (type) => apiRequest(`/content/${type}`),
 };

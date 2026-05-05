@@ -40,14 +40,18 @@ Expected URLs:
 First add rooms from the admin frontend Rooms page, or create them through `POST http://localhost:5000/api/rooms`.
 
 1. `GET http://localhost:5000/api/rooms`
-2. `GET http://localhost:5000/api/rooms/availability?roomType=deluxe&checkIn=2026-05-10&checkOut=2026-05-12`
-3. `POST http://localhost:5000/api/bookings`
-4. `POST http://localhost:5000/api/payments/:bookingId/create`
-5. `POST http://localhost:5000/api/payments/:paymentId/upload-proof`
-6. `GET http://localhost:5000/api/admin/bookings/waiting-approval`
-7. `PATCH http://localhost:5000/api/admin/payments/:paymentId/approve`
-8. `GET http://localhost:5000/api/bookings/code/:bookingCode`
-9. `GET http://localhost:5000/api/invoices/booking/:bookingId`
-10. `GET http://localhost:5000/api/admin/calendar/grid?startDate=2026-05-01&endDate=2026-05-31&roomType=all`
+2. `GET http://localhost:5000/api/rooms/availability?roomType=family_suite&checkIn=2026-05-10&checkOut=2026-05-12`
+3. `GET http://localhost:5000/api/rooms/availability-calendar?roomType=family_suite&startDate=2026-05-01&endDate=2026-05-31`
+4. `POST http://localhost:5000/api/bookings`
+5. `POST http://localhost:5000/api/payments/:bookingId/create`
+6. `POST http://localhost:5000/api/payments/:paymentId/upload-proof`
+7. `GET http://localhost:5000/api/admin/bookings/waiting-approval`
+8. `PATCH http://localhost:5000/api/admin/payments/:paymentId/approve`
+9. `GET http://localhost:5000/api/bookings/code/:bookingCode`
+10. `GET http://localhost:5000/api/invoices/booking/:bookingId`
+11. `GET http://localhost:5000/api/admin/calendar/grid?startDate=2026-05-01&endDate=2026-05-31&roomType=all`
+12. `GET http://localhost:5000/api/content/promo`
+13. `GET http://localhost:5000/api/admin/content?includeInactive=true`
 
 Manual transfer proof upload must use `multipart/form-data` with field name `proofImage`.
+Website content image upload uses `multipart/form-data` with field name `image`.

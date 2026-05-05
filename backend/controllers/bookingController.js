@@ -39,12 +39,21 @@ const createBooking = asyncHandler(async (req, res) => {
 
   const { startDate, endDate } = validateDateRange(req.body.checkIn, req.body.checkOut);
   const numberOfGuests = validatePositiveNumber(req.body.numberOfGuests, "numberOfGuests");
+  const numberOfChildren = validatePositiveNumber(
+    req.body.numberOfChildren ?? 0,
+    "numberOfChildren",
+    true
+  );
   const totalAmountFromRequest = req.body.totalAmount !== undefined
     ? validatePositiveNumber(req.body.totalAmount, "totalAmount", true)
     : null;
   const source = req.body.source || "direct";
+  const requestedRoomType = Room.normalizeRoomType(req.body.roomType);
   validateEnum(source, bookingSources, "source");
-  validateEnum(req.body.roomType, Room.roomTypes, "roomType");
+
+  if (!requestedRoomType) {
+    throw new AppError("roomType is required", 400);
+  }
 
   let room;
 
@@ -52,7 +61,7 @@ const createBooking = asyncHandler(async (req, res) => {
     validateObjectId(req.body.roomId, "room id");
     room = await assertRoomExistsAndActive(req.body.roomId);
 
-    if (room.roomType !== req.body.roomType) {
+    if (room.roomType !== requestedRoomType) {
       throw new AppError("roomId does not match selected roomType", 400);
     }
 
@@ -63,14 +72,24 @@ const createBooking = asyncHandler(async (req, res) => {
     });
   } else {
     room = await findAvailableRoomByType({
-      roomType: req.body.roomType,
+      roomType: requestedRoomType,
       checkIn: startDate,
       checkOut: endDate
     });
   }
 
   if (numberOfGuests > room.capacity) {
-    throw new AppError(`${room.name} ${room.roomNumber} can host up to ${room.capacity} guests`, 400);
+    throw new AppError(
+      `${room.name} ${room.roomNumber} can host up to ${room.capacity} adult guests`,
+      400
+    );
+  }
+
+  if (numberOfChildren > (room.childCapacity || 0)) {
+    throw new AppError(
+      `${room.name} ${room.roomNumber} can host up to ${room.childCapacity || 0} children`,
+      400
+    );
   }
 
   const nights = getNights(startDate, endDate);
@@ -86,6 +105,7 @@ const createBooking = asyncHandler(async (req, res) => {
     checkIn: startDate,
     checkOut: endDate,
     numberOfGuests,
+    numberOfChildren,
     totalAmount,
     source,
     bookingStatus: "pending_payment",

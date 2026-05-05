@@ -4,7 +4,7 @@ const Room = require("../models/Room");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
-const { requireFields, parseDate, validateEnum } = require("../utils/validators");
+const { requireFields, parseDate } = require("../utils/validators");
 const { checkAvailability } = require("../services/calendarService");
 
 const applyDateWindow = (query, { startDate, endDate }) => {
@@ -94,7 +94,6 @@ const buildDateList = (startDate, endDate) => {
 };
 
 const statusOrder = ["success", "waiting_admin_approval", "pending_payment", "rejected", "cancelled"];
-const roomTypeOrder = ["deluxe", "suite", "superior"];
 
 const getAdminCalendarEvents = asyncHandler(async (req, res) => {
   const query = {};
@@ -107,8 +106,7 @@ const getAdminCalendarEvents = asyncHandler(async (req, res) => {
   }
 
   if (req.query.roomType && req.query.roomType !== "all") {
-    validateEnum(req.query.roomType, Room.roomTypes, "roomType");
-    query.roomType = req.query.roomType;
+    query.roomType = Room.normalizeRoomType(req.query.roomType);
   }
 
   const events = await CalendarEvent.find(query)
@@ -130,12 +128,9 @@ const getCalendarGrid = asyncHandler(async (req, res) => {
   }
 
   const roomType = req.query.roomType || "all";
+  const normalizedRoomType = roomType === "all" ? "all" : Room.normalizeRoomType(roomType);
 
-  if (roomType !== "all") {
-    validateEnum(roomType, Room.roomTypes, "roomType");
-  }
-
-  const roomQuery = roomType === "all" ? {} : { roomType };
+  const roomQuery = normalizedRoomType === "all" ? {} : { roomType: normalizedRoomType };
   const rooms = await Room.find(roomQuery).sort({ roomType: 1, roomNumber: 1 });
   const roomIds = rooms.map((room) => room._id);
 
@@ -172,6 +167,7 @@ const getCalendarGrid = asyncHandler(async (req, res) => {
     });
   });
 
+  const roomTypeOrder = [...new Set(rooms.map((room) => room.roomType))].sort();
   const roomGroups = roomTypeOrder
     .map((currentRoomType) => ({
       roomType: currentRoomType,

@@ -1,5 +1,6 @@
 const Booking = require("../models/Booking");
 const Payment = require("../models/Payment");
+const Room = require("../models/Room");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
@@ -34,6 +35,8 @@ const attachLatestPayments = async (bookings) => {
 
 const getWaitingApprovalBookings = asyncHandler(async (req, res) => {
   const bookings = await Booking.find({ bookingStatus: "waiting_admin_approval" })
+    .populate("roomId")
+    .populate("paymentId")
     .populate("calendarEventId")
     .populate("invoiceId")
     .sort({ updatedAt: -1 });
@@ -55,7 +58,7 @@ const getAdminBookings = asyncHandler(async (req, res) => {
   }
 
   if (req.query.roomType && req.query.roomType !== "all") {
-    filters.roomType = req.query.roomType;
+    filters.roomType = Room.normalizeRoomType(req.query.roomType);
   }
 
   const bookings = await Booking.find(filters)

@@ -1,37 +1,68 @@
 import { useEffect, useState } from "react";
+import { contentApi } from "../services/api";
+
+const fallbackPromos = [
+  {
+    title: "Stay 3 Nights, Get 20% OFF",
+    description: "Perfect for a relaxing long weekend in nature",
+    imageUrl: "/gallery/IMG_0743.jpg",
+  },
+  {
+    title: "Honeymoon Package",
+    description: "Romantic setup with special forest view",
+    imageUrl: "/gallery/IMG_0750.jpg",
+  },
+  {
+    title: "Family Getaway",
+    description: "Spacious cabins for your whole family",
+    imageUrl: "/gallery/IMG_0748.jpg",
+  },
+];
 
 export default function PromoCarousel() {
-  const promos = [
-    {
-      title: "🌿 Stay 3 Nights, Get 20% OFF",
-      desc: "Perfect for a relaxing long weekend in nature",
-      image: "/cabin.jpg",
-    },
-    {
-      title: "💑 Honeymoon Package",
-      desc: "Romantic setup with special forest view",
-      image: "/cabin.jpg",
-    },
-    {
-      title: "👨‍👩‍👧 Family Getaway",
-      desc: "Spacious cabins for your whole family",
-      image: "/cabin.jpg",
-    },
-  ];
-
+  const [promos, setPromos] = useState(fallbackPromos);
   const [index, setIndex] = useState(0);
 
-  // AUTO SLIDE
   useEffect(() => {
+    let ignore = false;
+
+    const loadPromos = async () => {
+      try {
+        const response = await contentApi.list("promo");
+        const activePromos = response.data || [];
+
+        if (!ignore && activePromos.length > 0) {
+          setPromos(activePromos);
+          setIndex(0);
+        }
+      } catch {
+        if (!ignore) {
+          setPromos(fallbackPromos);
+        }
+      }
+    };
+
+    loadPromos();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (promos.length <= 1) {
+      return undefined;
+    }
+
     const interval = setInterval(() => {
       setIndex((prev) => (prev + 1) % promos.length);
     }, 4000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [promos.length]);
 
   return (
-    <section className="py-10 px-4 bg-cream">
+    <section id="promo" className="py-10 px-4 bg-cream scroll-mt-24">
       <h2 className="text-2xl font-bold text-center text-forest mb-6">
         Special Offers
       </h2>
@@ -52,7 +83,8 @@ export default function PromoCarousel() {
             >
               {/* IMAGE */}
               <img
-                src={promo.image}
+                src={promo.imageUrl || "/gallery/IMG_0743.jpg"}
+                alt={promo.altText || promo.title}
                 className="w-full h-full object-cover"
               />
 
@@ -65,7 +97,7 @@ export default function PromoCarousel() {
                   {promo.title}
                 </h3>
                 <p className="mt-2 text-sm md:text-base text-cream">
-                  {promo.desc}
+                  {promo.description}
                 </p>
               </div>
             </div>
