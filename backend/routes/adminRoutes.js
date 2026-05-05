@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   getAdminBookings,
+  createManualBooking,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
   approvePayment,
@@ -28,6 +29,10 @@ const {
   updateAdminPaymentOption,
   deleteAdminPaymentOption
 } = require("../controllers/paymentOptionController");
+const {
+  getAdminInvoiceSettings,
+  updateAdminInvoiceSettings
+} = require("../controllers/invoiceSettingController");
 const { protect, adminOnly } = require("../middlewares/authMiddleware");
 const { uploadContentImage } = require("../middlewares/uploadMiddleware");
 
@@ -36,6 +41,7 @@ const router = express.Router();
 router.use(protect, adminOnly);
 
 router.get("/bookings", getAdminBookings);
+router.post("/bookings/manual", createManualBooking);
 router.get("/bookings/waiting-approval", getWaitingApprovalBookings);
 router.get("/bookings/:id", getAdminBookingDetail);
 router.patch("/payments/:paymentId/approve", approvePayment);
@@ -48,6 +54,10 @@ router
   .route("/payment-options/:id")
   .patch(uploadContentImage, updateAdminPaymentOption)
   .delete(deleteAdminPaymentOption);
+router
+  .route("/invoice-settings")
+  .get(getAdminInvoiceSettings)
+  .patch(uploadContentImage, updateAdminInvoiceSettings);
 router.get("/calendar", getAdminCalendarEvents);
 router.get("/calendar/grid", getCalendarGrid);
 router.post("/availability/check", checkAdminAvailability);

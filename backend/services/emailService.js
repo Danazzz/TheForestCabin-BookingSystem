@@ -1,5 +1,10 @@
 const nodemailer = require("nodemailer");
 const Invoice = require("../models/Invoice");
+const {
+  getInvoiceSettings,
+  buildInvoiceSettingsSnapshot,
+  renderTemplate
+} = require("./invoiceSettingsService");
 
 const currencyFormatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
@@ -44,8 +49,8 @@ const buildTransport = () => {
   });
 };
 
-const buildInvoiceUrl = (bookingCode) => {
-  if (!process.env.USER_FRONTEND_URL) {
+const buildInvoiceUrl = (bookingCode, settings) => {
+  if (!settings.includeBookingStatusLink || !process.env.USER_FRONTEND_URL) {
     return "";
   }
 
@@ -54,9 +59,26 @@ const buildInvoiceUrl = (bookingCode) => {
   return `${baseUrl}/?bookingCode=${encodeURIComponent(bookingCode || "")}`;
 };
 
-const buildInvoiceEmailHtml = (invoice) => {
+const buildTemplateVariables = (invoice, settings) => {
   const booking = invoice.bookingId || {};
-  const invoiceUrl = buildInvoiceUrl(booking.bookingCode);
+
+  return {
+    businessName: settings.businessName,
+    guestName: invoice.guestName,
+    invoiceNumber: invoice.invoiceNumber,
+    bookingCode: booking.bookingCode || "",
+    roomNumber: invoice.roomNumber,
+    roomType: invoice.roomType,
+    totalAmount: currencyFormatter.format(invoice.totalAmount || 0)
+  };
+};
+
+const buildInvoiceEmailHtml = (invoice, settings) => {
+  const booking = invoice.bookingId || {};
+  const variables = buildTemplateVariables(invoice, settings);
+  const invoiceUrl = buildInvoiceUrl(booking.bookingCode, settings);
+  const primaryColor = settings.primaryColor || "#174f37";
+  const accentColor = settings.accentColor || "#f6f3ea";
   const itemRows = (invoice.items || [])
     .map(
       (item) => `
@@ -71,14 +93,24 @@ const buildInvoiceEmailHtml = (invoice) => {
     .join("");
 
   return `
-    <div style="margin:0;background:#f6f3ea;padding:24px;font-family:Arial,sans-serif;color:#1f2937;">
+    <div style="margin:0;background:${escapeHtml(accentColor)};padding:24px;font-family:Arial,sans-serif;color:#1f2937;">
       <div style="max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
-        <div style="background:#174f37;color:#ffffff;padding:24px;">
-          <p style="margin:0;font-size:14px;letter-spacing:1px;text-transform:uppercase;">The Forest Cabin</p>
+        <div style="background:${escapeHtml(primaryColor)};color:#ffffff;padding:24px;">
+          ${
+            settings.logoUrl
+              ? `<img src="${escapeHtml(settings.logoUrl)}" alt="${escapeHtml(settings.businessName)}" style="max-height:56px;max-width:180px;margin-bottom:16px;display:block;" />`
+              : ""
+          }
+          <p style="margin:0;font-size:14px;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(settings.businessName)}</p>
           <h1 style="margin:8px 0 0;font-size:26px;">Invoice ${escapeHtml(invoice.invoiceNumber)}</h1>
         </div>
         <div style="padding:24px;">
-          <p style="margin:0 0 16px;">Hi ${escapeHtml(invoice.guestName)}, your booking has been approved. Your paid invoice is below.</p>
+          ${
+            settings.headerNote
+              ? `<p style="margin:0 0 12px;color:${escapeHtml(primaryColor)};font-weight:bold;">${escapeHtml(settings.headerNote)}</p>`
+              : ""
+          }
+          <p style="margin:0 0 16px;">${escapeHtml(renderTemplate(settings.emailMessage, variables))}</p>
           <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
             <tr>
               <td style="padding:6px 0;color:#6b7280;">Booking code</td>
@@ -116,14 +148,49 @@ const buildInvoiceEmailHtml = (invoice) => {
 
           <div style="margin-top:20px;text-align:right;">
             <p style="margin:4px 0;color:#6b7280;">Subtotal: ${currencyFormatter.format(invoice.subtotal || 0)}</p>
-            <p style="margin:8px 0 0;font-size:22px;font-weight:bold;color:#174f37;">Total paid: ${currencyFormatter.format(invoice.totalAmount || 0)}</p>
+            <p style="margin:8px 0 0;font-size:22px;font-weight:bold;color:${escapeHtml(primaryColor)};">Total paid: ${currencyFormatter.format(invoice.totalAmount || 0)}</p>
           </div>
 
           ${
-            invoiceUrl
-              ? `<p style="margin-top:24px;"><a href="${invoiceUrl}" style="display:inline-block;background:#174f37;color:#ffffff;padding:12px 16px;border-radius:6px;text-decoration:none;font-weight:bold;">Check booking status</a></p>`
+            settings.paymentConfirmationNote
+              ? `<p style="margin-top:18px;padding:12px;background:${escapeHtml(accentColor)};border-radius:6px;">${escapeHtml(settings.paymentConfirmationNote)}</p>`
               : ""
           }
+
+          ${
+            invoiceUrl
+              ? `<p style="margin-top:24px;"><a href="${invoiceUrl}" style="display:inline-block;background:${escapeHtml(primaryColor)};color:#ffffff;padding:12px 16px;border-radius:6px;text-decoration:none;font-weight:bold;">${escapeHtml(settings.emailButtonLabel || "Check booking status")}</a></p>`
+              : ""
+          }
+
+          ${
+            settings.termsAndConditions
+              ? `<div style="margin-top:24px;color:#6b7280;font-size:13px;white-space:pre-line;"><strong>Terms:</strong><br />${escapeHtml(settings.termsAndConditions)}</div>`
+              : ""
+          }
+          ${
+            settings.emailClosingNote
+              ? `<p style="margin-top:24px;">${escapeHtml(settings.emailClosingNote)}</p>`
+              : ""
+          }
+          ${
+            settings.footerNote
+              ? `<p style="margin-top:20px;color:#6b7280;font-size:12px;">${escapeHtml(settings.footerNote)}</p>`
+              : ""
+          }
+          <div style="margin-top:20px;color:#6b7280;font-size:12px;line-height:1.5;">
+            ${
+              settings.businessAddress
+                ? `<div>${escapeHtml(settings.businessAddress)}</div>`
+                : ""
+            }
+            ${
+              settings.businessPhone || settings.businessEmail
+                ? `<div>${escapeHtml([settings.businessPhone, settings.businessEmail].filter(Boolean).join(" · "))}</div>`
+                : ""
+            }
+            ${settings.websiteUrl ? `<div>${escapeHtml(settings.websiteUrl)}</div>` : ""}
+          </div>
         </div>
       </div>
     </div>
@@ -137,6 +204,26 @@ const sendInvoiceEmail = async (invoiceId) => {
     return { sent: false, reason: "invoice_not_found" };
   }
 
+  const settings =
+    invoice.settingsSnapshot ||
+    buildInvoiceSettingsSnapshot(await getInvoiceSettings());
+
+  if (!settings.autoSendInvoiceEmail) {
+    invoice.emailStatus = "skipped";
+    invoice.emailError = "Auto-send invoice email is disabled in invoice settings";
+    await invoice.save();
+
+    return { sent: false, reason: "auto_send_disabled" };
+  }
+
+  if (!invoice.guestEmail) {
+    invoice.emailStatus = "skipped";
+    invoice.emailError = "Guest email is not available";
+    await invoice.save();
+
+    return { sent: false, reason: "guest_email_missing" };
+  }
+
   if (!isSmtpConfigured()) {
     invoice.emailStatus = "not_configured";
     invoice.emailError = "SMTP_HOST and SMTP_FROM are not configured";
@@ -147,12 +234,16 @@ const sendInvoiceEmail = async (invoiceId) => {
 
   try {
     const transport = buildTransport();
+    const subject = renderTemplate(
+      settings.emailSubject || "{{businessName}} Invoice {{invoiceNumber}}",
+      buildTemplateVariables(invoice, settings)
+    );
 
     await transport.sendMail({
       from: process.env.SMTP_FROM,
       to: invoice.guestEmail,
-      subject: `The Forest Cabin Invoice ${invoice.invoiceNumber}`,
-      html: buildInvoiceEmailHtml(invoice)
+      subject,
+      html: buildInvoiceEmailHtml(invoice, settings)
     });
 
     invoice.emailStatus = "sent";

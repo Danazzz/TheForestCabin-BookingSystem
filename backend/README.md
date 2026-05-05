@@ -197,15 +197,50 @@ Get invoice after approval:
 GET /api/invoices/booking/:bookingId
 ```
 
+Invoice settings are managed from the admin API and are used when new invoices are generated and invoice emails are sent. SMTP credentials remain in `.env`.
+
 ## Admin API
 
 Auth is a permissive placeholder for now.
 
 ```http
 GET /api/admin/bookings
+POST /api/admin/bookings/manual
 GET /api/admin/bookings/waiting-approval
 GET /api/admin/bookings/:id
 ```
+
+Create a manual admin booking:
+
+```http
+POST /api/admin/bookings/manual
+Content-Type: application/json
+```
+
+```json
+{
+  "guestName": "Walk-in Guest",
+  "guestPhone": "+628123456789",
+  "guestEmail": "guest@example.com",
+  "roomId": "ROOM_OBJECT_ID",
+  "checkIn": "2026-05-10",
+  "checkOut": "2026-05-12",
+  "numberOfGuests": 2,
+  "numberOfChildren": 0,
+  "bookingStatus": "success",
+  "paymentStatus": "paid",
+  "overrideTotal": false,
+  "adminNote": "Booked directly through admin."
+}
+```
+
+Manual bookings use `source: manual_admin`. When created as `success` with `paid`, the backend checks availability, creates the calendar event, generates the invoice, and sends the invoice email if invoice settings and SMTP allow it.
+
+Manual admin bookings are intentionally simpler than website bookings:
+
+- `pending_payment` always means payment is `unpaid`
+- `success` always means payment is `paid`
+- `waiting_admin_approval` is reserved for website bookings where guests upload proof for admin review
 
 Payment option management:
 
@@ -217,6 +252,15 @@ DELETE /api/admin/payment-options/:id
 ```
 
 `POST` and `PATCH` support JSON with `imageUrl` or `multipart/form-data` with optional image field `image` for QRIS and other payment images. Bank transfer and virtual account options require `bankName`, `accountName`, and `accountNumber`. QRIS options require an image or `qrisCode`. Other payment options require a payment name in `merchantName`.
+
+Invoice settings:
+
+```http
+GET /api/admin/invoice-settings
+PATCH /api/admin/invoice-settings
+```
+
+`PATCH` supports JSON with `logoUrl` or `multipart/form-data` with optional logo image field `image`. Configurable fields include business info, invoice prefix, logo, invoice notes, email subject/message, primary/accent colors, `autoSendInvoiceEmail`, and `includeBookingStatusLink`.
 
 Approve payment and booking:
 

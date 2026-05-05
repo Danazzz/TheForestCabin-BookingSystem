@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const invoiceStatuses = ["paid", "cancelled"];
 const paymentMethods = ["manual_transfer", "virtual_account", "qris", "other"];
-const invoiceEmailStatuses = ["pending", "sent", "failed", "not_configured"];
+const invoiceEmailStatuses = ["pending", "sent", "failed", "not_configured", "skipped"];
 
 const invoiceItemSchema = new mongoose.Schema(
   {
@@ -30,6 +30,31 @@ const invoiceItemSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const invoiceSettingsSnapshotSchema = new mongoose.Schema(
+  {
+    businessName: { type: String, trim: true, default: "The Forest Cabin" },
+    businessEmail: { type: String, trim: true, default: "" },
+    businessPhone: { type: String, trim: true, default: "" },
+    businessAddress: { type: String, trim: true, default: "" },
+    websiteUrl: { type: String, trim: true, default: "" },
+    logoUrl: { type: String, trim: true, default: "" },
+    invoicePrefix: { type: String, trim: true, default: "INV" },
+    headerNote: { type: String, trim: true, default: "" },
+    footerNote: { type: String, trim: true, default: "" },
+    termsAndConditions: { type: String, trim: true, default: "" },
+    paymentConfirmationNote: { type: String, trim: true, default: "" },
+    emailSubject: { type: String, trim: true, default: "" },
+    emailMessage: { type: String, trim: true, default: "" },
+    emailClosingNote: { type: String, trim: true, default: "" },
+    emailButtonLabel: { type: String, trim: true, default: "" },
+    autoSendInvoiceEmail: { type: Boolean, default: true },
+    includeBookingStatusLink: { type: Boolean, default: true },
+    primaryColor: { type: String, trim: true, default: "#174f37" },
+    accentColor: { type: String, trim: true, default: "#f6f3ea" }
+  },
+  { _id: false }
+);
+
 const invoiceSchema = new mongoose.Schema(
   {
     invoiceNumber: {
@@ -51,7 +76,7 @@ const invoiceSchema = new mongoose.Schema(
     },
     guestEmail: {
       type: String,
-      required: true,
+      default: "",
       lowercase: true,
       trim: true
     },
@@ -111,6 +136,10 @@ const invoiceSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: ""
+    },
+    settingsSnapshot: {
+      type: invoiceSettingsSnapshotSchema,
+      default: null
     },
     issuedAt: {
       type: Date,

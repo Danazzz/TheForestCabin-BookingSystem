@@ -15,7 +15,7 @@ const paymentStatuses = [
   "rejected",
   "refund_required"
 ];
-const bookingSources = ["direct"];
+const bookingSources = ["direct", "manual_admin"];
 const rejectionReasons = [
   "no_room_available",
   "invalid_payment_proof",
@@ -42,10 +42,13 @@ const bookingSchema = new mongoose.Schema(
     },
     guestEmail: {
       type: String,
-      required: [true, "guestEmail is required"],
+      default: "",
       lowercase: true,
       trim: true,
-      match: [/^\S+@\S+\.\S+$/, "guestEmail must be a valid email"]
+      validate: {
+        validator: (value) => !value || /^\S+@\S+\.\S+$/.test(value),
+        message: "guestEmail must be a valid email"
+      }
     },
     guestPhone: {
       type: String,

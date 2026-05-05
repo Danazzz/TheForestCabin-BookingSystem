@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const calendarStatuses = ["confirmed", "cancelled"];
-const calendarSources = ["direct"];
+const calendarSources = ["direct", "manual_admin"];
 
 const calendarEventSchema = new mongoose.Schema(
   {

@@ -11,6 +11,7 @@ const {
   rejectPayment: rejectPaymentService
 } = require("../services/adminApprovalService");
 const { checkRoomAvailability } = require("../services/availabilityService");
+const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
 
 const attachLatestPayments = async (bookings) => {
   const bookingIds = bookings.map((booking) => booking._id);
@@ -61,6 +62,10 @@ const getAdminBookings = asyncHandler(async (req, res) => {
     filters.roomType = Room.normalizeRoomType(req.query.roomType);
   }
 
+  if (req.query.source && req.query.source !== "all") {
+    filters.source = req.query.source;
+  }
+
   const bookings = await Booking.find(filters)
     .populate("roomId")
     .populate("paymentId")
@@ -71,6 +76,22 @@ const getAdminBookings = asyncHandler(async (req, res) => {
   const data = await attachLatestPayments(bookings);
 
   sendResponse(res, 200, "Bookings retrieved successfully", data);
+});
+
+const createManualBooking = asyncHandler(async (req, res) => {
+  requireFields(req.body, [
+    "guestName",
+    "guestPhone",
+    "checkIn",
+    "checkOut",
+    "numberOfGuests"
+  ]);
+
+  const booking = await createManualBookingService(req.body, {
+    approvedBy: req.user?.id || req.body?.approvedBy
+  });
+
+  sendResponse(res, 201, "Manual booking created successfully", booking);
 });
 
 const getAdminBookingDetail = asyncHandler(async (req, res) => {
@@ -142,6 +163,7 @@ const checkAdminAvailability = asyncHandler(async (req, res) => {
 
 module.exports = {
   getAdminBookings,
+  createManualBooking,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
   approvePayment,

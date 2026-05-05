@@ -95,7 +95,7 @@ const createBooking = asyncHandler(async (req, res) => {
   const totalAmountFromRequest = req.body.totalAmount !== undefined
     ? validatePositiveNumber(req.body.totalAmount, "totalAmount", true)
     : null;
-  const source = req.body.source || "direct";
+  const source = "direct";
   const requestedRoomType = Room.normalizeRoomType(req.body.roomType);
   validateEnum(source, bookingSources, "source");
 
