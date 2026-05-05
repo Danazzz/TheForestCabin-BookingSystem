@@ -1,10 +1,10 @@
 const Booking = require("../models/Booking");
 const Payment = require("../models/Payment");
+const PaymentOption = require("../models/PaymentOption");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
 const {
-  requireFields,
   validateEnum,
   validateObjectId
 } = require("../utils/validators");
@@ -15,24 +15,96 @@ const {
   handlePaymentWebhook
 } = require("../services/paymentGatewayService");
 
-const buildManualTransferPayload = (booking) => ({
-  provider: "manual",
-  paymentMethod: "manual_transfer",
-  transactionReference: `MANUAL-${Date.now()}-${String(booking._id).slice(-6).toUpperCase()}`,
-  paymentInstructions: {
-    bankName: "Set bank account details in your frontend or admin settings",
-    accountNumber: "0000000000",
-    accountName: "The Forest Cabin"
-  },
-  expiresAt: null
-});
+const buildReference = (paymentMethod, bookingId) => {
+  const prefixByMethod = {
+    manual_transfer: "BANK",
+    virtual_account: "VA",
+    qris: "QRIS",
+    other: "OTHER"
+  };
+  const bookingSuffix = String(bookingId).slice(-6).toUpperCase();
+
+  return `${prefixByMethod[paymentMethod] || "PAY"}-${Date.now()}-${bookingSuffix}`;
+};
+
+const buildManualProviderPayload = (booking, paymentOption) => {
+  const snapshot = paymentOption.toSnapshot();
+  const paymentInstructions = {
+    name: snapshot.name,
+    paymentMethod: snapshot.paymentMethod,
+    providerLabel: snapshot.providerLabel,
+    bankName: snapshot.bankName,
+    accountName: snapshot.accountName,
+    accountNumber: snapshot.accountNumber,
+    merchantName: snapshot.merchantName,
+    qrisCode: snapshot.qrisCode,
+    imageUrl: snapshot.imageUrl,
+    instructions: snapshot.instructions
+  };
+
+  if (snapshot.paymentMethod === "virtual_account") {
+    paymentInstructions.virtualAccountNumber = snapshot.accountNumber;
+    paymentInstructions.bankCode = snapshot.providerLabel || snapshot.bankName;
+  }
+
+  if (snapshot.paymentMethod === "qris") {
+    paymentInstructions.qrString = snapshot.qrisCode;
+    paymentInstructions.qrImageUrl = snapshot.imageUrl;
+  }
+
+  return {
+    provider: "manual",
+    paymentMethod: snapshot.paymentMethod,
+    transactionReference: buildReference(snapshot.paymentMethod, booking._id),
+    paymentInstructions,
+    paymentOption: snapshot,
+    expiresAt: null
+  };
+};
+
+const findActivePaymentOption = async ({ paymentMethod, paymentOptionId }) => {
+  if (paymentOptionId) {
+    validateObjectId(paymentOptionId, "payment option id");
+    const option = await PaymentOption.findOne({
+      _id: paymentOptionId,
+      isActive: true
+    });
+
+    if (!option) {
+      throw new AppError("Selected payment option is not available", 400);
+    }
+
+    if (paymentMethod && option.paymentMethod !== paymentMethod) {
+      throw new AppError("paymentOptionId does not match paymentMethod", 400);
+    }
+
+    return option;
+  }
+
+  const option = await PaymentOption.findOne({
+    paymentMethod,
+    isActive: true
+  }).sort({ createdAt: 1 });
+
+  if (!option) {
+    throw new AppError("No active payment option is configured for this method", 400);
+  }
+
+  return option;
+};
 
 const createPayment = asyncHandler(async (req, res) => {
   validateObjectId(req.params.bookingId, "booking id");
-  requireFields(req.body, ["paymentMethod"]);
-  const paymentMethod =
+  const paymentMethodFromRequest =
     req.body.paymentMethod === "va" ? "virtual_account" : req.body.paymentMethod;
-  validateEnum(paymentMethod, paymentMethods, "paymentMethod");
+
+  if (!paymentMethodFromRequest && !req.body.paymentOptionId) {
+    throw new AppError("paymentMethod or paymentOptionId is required", 400);
+  }
+
+  if (paymentMethodFromRequest) {
+    validateEnum(paymentMethodFromRequest, paymentMethods, "paymentMethod");
+  }
 
   const booking = await Booking.findById(req.params.bookingId);
 
@@ -56,6 +128,11 @@ const createPayment = asyncHandler(async (req, res) => {
     });
   }
 
+  const paymentOption = await findActivePaymentOption({
+    paymentMethod: paymentMethodFromRequest,
+    paymentOptionId: req.body.paymentOptionId
+  });
+  const paymentMethod = paymentOption.paymentMethod;
   let providerPayload;
 
   if (paymentMethod === "virtual_account") {
@@ -66,13 +143,16 @@ const createPayment = asyncHandler(async (req, res) => {
     providerPayload = await createQrisPayment(booking);
   }
 
-  if (paymentMethod === "manual_transfer") {
-    providerPayload = buildManualTransferPayload(booking);
-  }
+  providerPayload = {
+    ...providerPayload,
+    ...buildManualProviderPayload(booking, paymentOption)
+  };
 
   const payment = await Payment.create({
     bookingId: booking._id,
     paymentMethod,
+    paymentOptionId: paymentOption._id,
+    paymentOptionSnapshot: providerPayload.paymentOption,
     amount: booking.totalAmount,
     paymentStatus: "pending",
     transactionReference: providerPayload.transactionReference
@@ -97,10 +177,6 @@ const uploadPaymentProof = asyncHandler(async (req, res) => {
 
   if (!payment) {
     throw new AppError("Payment not found", 404);
-  }
-
-  if (payment.paymentMethod !== "manual_transfer") {
-    throw new AppError("Payment proof upload is only allowed for manual transfers", 400);
   }
 
   if (payment.paymentStatus === "paid") {

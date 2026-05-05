@@ -1,13 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
-import { bookingApi, invoiceApi, paymentApi, promoApi, roomApi } from "../services/api";
+import { FiChevronLeft, FiChevronRight, FiCopy } from "react-icons/fi";
+import {
+  bookingApi,
+  invoiceApi,
+  paymentApi,
+  paymentOptionApi,
+  promoApi,
+  roomApi,
+} from "../services/api";
 
 const PROPERTY_ID = "forest-cabin-main";
 
 const paymentMethodLabels = {
-  manual_transfer: "Manual Bank Transfer",
-  qris: "QRIS",
+  manual_transfer: "Transfer Rekening",
   virtual_account: "Virtual Account",
+  qris: "QRIS",
+  other: "Other",
+};
+
+const paymentMethodPriority = {
+  manual_transfer: 1,
+  virtual_account: 2,
+  qris: 3,
+  other: 4,
 };
 
 const currencyFormatter = new Intl.NumberFormat("id-ID", {
@@ -137,6 +152,92 @@ const formatPromoRule = (promo) => {
   return "No price change";
 };
 
+const getPaymentOptionSummary = (paymentOption) => {
+  if (!paymentOption) {
+    return "";
+  }
+
+  if (paymentOption.paymentMethod === "qris") {
+    return paymentOption.merchantName || "QRIS merchant";
+  }
+
+  if (paymentOption.paymentMethod === "virtual_account") {
+    return `${paymentOption.bankName || "Virtual Account"} ${paymentOption.accountNumber || ""}`.trim();
+  }
+
+  if (paymentOption.paymentMethod === "other") {
+    return paymentOption.accountNumber || paymentOption.accountName || "Custom payment";
+  }
+
+  return `${paymentOption.bankName || "Bank transfer"} ${paymentOption.accountNumber || ""}`.trim();
+};
+
+const getPaymentOptionDisplayName = (paymentOption) => {
+  if (!paymentOption) {
+    return "-";
+  }
+
+  if (paymentOption.paymentMethod === "manual_transfer") {
+    return `Transfer Rekening ${paymentOption.bankName || ""}`.trim();
+  }
+
+  if (paymentOption.paymentMethod === "virtual_account") {
+    return `Virtual Account ${paymentOption.bankName || ""}`.trim();
+  }
+
+  if (paymentOption.paymentMethod === "qris") {
+    return `QRIS ${paymentOption.merchantName || ""}`.trim();
+  }
+
+  return paymentOption.merchantName || paymentOption.bankName || paymentOption.name || "Other Payment";
+};
+
+const sortPaymentOptions = (options) =>
+  [...options].sort((first, second) => {
+    const priorityDiff =
+      (paymentMethodPriority[first.paymentMethod] || 99) -
+      (paymentMethodPriority[second.paymentMethod] || 99);
+
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    return getPaymentOptionDisplayName(first).localeCompare(getPaymentOptionDisplayName(second));
+  });
+
+const getPaymentDetails = (paymentData) => {
+  if (!paymentData) {
+    return null;
+  }
+
+  return {
+    name: getPaymentOptionDisplayName(paymentData),
+    paymentMethod: paymentData.paymentMethod,
+    bankName: paymentData.bankName,
+    accountName: paymentData.accountName,
+    accountNumber: paymentData.virtualAccountNumber || paymentData.accountNumber,
+    merchantName: paymentData.merchantName,
+    qrisCode: paymentData.qrisCode || paymentData.qrString,
+    imageUrl: paymentData.qrImageUrl || paymentData.imageUrl,
+    instructions: paymentData.instructions,
+  };
+};
+
+const copyToClipboard = async (value) => {
+  if (!value || !navigator.clipboard) {
+    return false;
+  }
+
+  await navigator.clipboard.writeText(value);
+  return true;
+};
+
+const getInitialBookingCode = () => {
+  const bookingCode = new URLSearchParams(window.location.search).get("bookingCode");
+
+  return bookingCode ? bookingCode.trim().toUpperCase() : "";
+};
+
 export default function BookingSection({ highlight }) {
   const [form, setForm] = useState({
     guestName: "",
@@ -148,15 +249,18 @@ export default function BookingSection({ highlight }) {
     children: 0,
     roomType: "",
     promo: "",
-    paymentMethod: "manual_transfer",
+    paymentOptionId: "",
   });
   const [roomOptions, setRoomOptions] = useState([]);
   const [promoOptions, setPromoOptions] = useState([]);
+  const [paymentOptions, setPaymentOptions] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
   const [promosLoading, setPromosLoading] = useState(true);
-  const [statusCode, setStatusCode] = useState("");
+  const [paymentOptionsLoading, setPaymentOptionsLoading] = useState(true);
+  const [statusCode, setStatusCode] = useState(getInitialBookingCode);
   const [proofImage, setProofImage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [proofUploading, setProofUploading] = useState(false);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -176,6 +280,13 @@ export default function BookingSection({ highlight }) {
   const selectedPromo = useMemo(
     () => promoOptions.find((promo) => promo._id === form.promo) || null,
     [form.promo, promoOptions]
+  );
+  const selectedPaymentOption = useMemo(
+    () =>
+      paymentOptions.find((paymentOption) => paymentOption._id === form.paymentOptionId) ||
+      paymentOptions[0] ||
+      null,
+    [form.paymentOptionId, paymentOptions]
   );
 
   const nights = getNights(form.checkIn, form.checkOut);
@@ -224,6 +335,41 @@ export default function BookingSection({ highlight }) {
     };
 
     loadRoomTypes();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadPaymentOptions = async () => {
+      setPaymentOptionsLoading(true);
+
+      try {
+        const response = await paymentOptionApi.listActive();
+        const options = sortPaymentOptions(response.data || []);
+
+        if (!ignore) {
+          setPaymentOptions(options);
+          setForm((previous) => ({
+            ...previous,
+            paymentOptionId: previous.paymentOptionId || options[0]?._id || "",
+          }));
+        }
+      } catch (paymentOptionError) {
+        if (!ignore) {
+          setError(normalizeError(paymentOptionError));
+        }
+      } finally {
+        if (!ignore) {
+          setPaymentOptionsLoading(false);
+        }
+      }
+    };
+
+    loadPaymentOptions();
 
     return () => {
       ignore = true;
@@ -369,8 +515,8 @@ export default function BookingSection({ highlight }) {
       return `${selectedRoom.roomType} can host up to ${selectedRoom.childCapacity} children.`;
     }
 
-    if (form.paymentMethod === "manual_transfer" && !proofImage) {
-      return "Please upload payment proof for manual transfer.";
+    if (!selectedPaymentOption) {
+      return "No active payment method is available yet. Please contact admin.";
     }
 
     return "";
@@ -495,19 +641,13 @@ export default function BookingSection({ highlight }) {
       });
 
       const createdBooking = bookingResponse.data;
-      const paymentResponse = await paymentApi.createPayment(
-        createdBooking._id,
-        form.paymentMethod
-      );
+      const paymentResponse = await paymentApi.createPayment(createdBooking._id, {
+        paymentMethod: selectedPaymentOption.paymentMethod,
+        paymentOptionId: selectedPaymentOption._id,
+      });
 
       let currentBooking = paymentResponse.data.booking;
-      let currentPayment = paymentResponse.data.payment;
-
-      if (form.paymentMethod === "manual_transfer") {
-        const uploadResponse = await paymentApi.uploadProof(currentPayment._id, proofImage);
-        currentBooking = uploadResponse.data.booking;
-        currentPayment = uploadResponse.data.payment;
-      }
+      const currentPayment = paymentResponse.data.payment;
 
       currentBooking = {
         ...currentBooking,
@@ -524,9 +664,7 @@ export default function BookingSection({ highlight }) {
       setStatusCode(currentBooking.bookingCode || "");
 
       setSuccessMessage(
-        form.paymentMethod === "manual_transfer"
-          ? `Booking submitted. Your code is ${currentBooking.bookingCode}. Your payment proof is waiting for admin approval.`
-          : `Booking and payment request created. Your code is ${currentBooking.bookingCode}. Please complete your payment.`
+        `Booking created. Your code is ${currentBooking.bookingCode}. Complete the payment instructions below, then upload your payment proof.`
       );
     } catch (submitError) {
       setError(normalizeError(submitError));
@@ -535,8 +673,54 @@ export default function BookingSection({ highlight }) {
     }
   };
 
+  const handleProofUpload = async () => {
+    if (!latestPayment?._id) {
+      setError("Create a payment request first.");
+      return;
+    }
+
+    if (!proofImage) {
+      setError("Please choose a payment proof image first.");
+      return;
+    }
+
+    setProofUploading(true);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const uploadResponse = await paymentApi.uploadProof(latestPayment._id, proofImage);
+      const uploadedPayment = uploadResponse.data.payment;
+
+      setBookingResult((previous) => ({
+        ...previous,
+        booking: uploadResponse.data.booking,
+        payment: uploadedPayment,
+        payments: [
+          uploadedPayment,
+          ...(previous?.payments || []).filter((payment) => payment._id !== uploadedPayment._id),
+        ],
+      }));
+      setProofImage(null);
+      setSuccessMessage("Payment proof uploaded. Your booking is waiting for admin approval.");
+    } catch (uploadError) {
+      setError(normalizeError(uploadError));
+    } finally {
+      setProofUploading(false);
+    }
+  };
+
   const latestPayment = bookingResult?.payment;
   const providerPayload = bookingResult?.providerPayload;
+  const paymentInstructions =
+    providerPayload?.paymentInstructions || latestPayment?.paymentOptionSnapshot || null;
+  const paymentDetails = getPaymentDetails(paymentInstructions);
+  const paymentImageUrl = paymentDetails?.imageUrl;
+  const paymentAccountNumber = paymentDetails?.accountNumber;
+  const canUploadProof =
+    latestPayment &&
+    latestPayment.paymentStatus !== "paid" &&
+    bookingResult?.booking?.bookingStatus !== "success";
 
   return (
     <section id="booking" className="bg-white px-4 py-12 text-center">
@@ -843,32 +1027,130 @@ export default function BookingSection({ highlight }) {
           ) : null}
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <select
-            name="paymentMethod"
-            value={form.paymentMethod}
-            onChange={handleChange}
-            className="rounded border p-2"
-          >
-            {Object.entries(paymentMethodLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+        <div className="mt-4 rounded border bg-white p-4">
+          <p className="text-sm font-semibold text-forest">Payment method</p>
+          {paymentOptionsLoading ? (
+            <p className="mt-3 text-sm text-gray-500">Loading payment methods...</p>
+          ) : null}
+          {!paymentOptionsLoading && paymentOptions.length === 0 ? (
+            <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              No active payment method is configured yet.
+            </p>
+          ) : null}
+          <div className="mt-3 space-y-3">
+            {paymentOptions.map((paymentOption) => {
+              const isSelected = form.paymentOptionId === paymentOption._id;
+              const paymentDetails = getPaymentDetails(paymentOption);
+              const accountLabel =
+                paymentOption.paymentMethod === "virtual_account"
+                  ? "Virtual account number"
+                  : paymentOption.paymentMethod === "other"
+                    ? "Reference"
+                    : "Account number";
 
-          {form.paymentMethod === "manual_transfer" ? (
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(event) => setProofImage(event.target.files?.[0] || null)}
-              className="rounded border bg-white p-2 text-sm"
-            />
-          ) : (
-            <div className="rounded border bg-white p-2 text-sm text-gray-600">
-              Payment instructions will appear after booking.
-            </div>
-          )}
+              return (
+                <div
+                  key={paymentOption._id}
+                  className={`overflow-hidden rounded border text-sm transition ${
+                    isSelected
+                      ? "border-forest bg-green-50 ring-1 ring-forest"
+                      : "border-gray-200 hover:border-green-200"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((previous) => ({
+                        ...previous,
+                        paymentOptionId: paymentOption._id,
+                      }))
+                    }
+                    className="flex w-full items-start justify-between gap-3 p-3 text-left"
+                    aria-expanded={isSelected}
+                  >
+                    <span className="flex items-start gap-2">
+                      <span
+                        className={`mt-1 h-4 w-4 rounded-full border ${
+                          isSelected ? "border-forest bg-forest" : "border-gray-300"
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span>
+                        <span className="block font-semibold text-forest">
+                          {getPaymentOptionDisplayName(paymentOption)}
+                        </span>
+                        <span className="block text-xs text-gray-500">
+                          {paymentMethodLabels[paymentOption.paymentMethod]}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      {getPaymentOptionSummary(paymentOption)}
+                    </span>
+                  </button>
+
+                  {isSelected ? (
+                    <div className="border-t border-green-100 bg-white p-3">
+                      {paymentDetails?.imageUrl ? (
+                        <img
+                          src={paymentDetails.imageUrl}
+                          alt={paymentDetails.paymentMethod === "qris" ? "QRIS" : "Payment method"}
+                          className="max-h-64 w-full rounded border border-green-100 bg-white object-contain p-2"
+                        />
+                      ) : null}
+
+                      {paymentDetails?.accountNumber ? (
+                        <div className="mt-3 rounded border border-green-100 bg-cream p-3">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">
+                            {accountLabel}
+                          </p>
+                          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-lg font-bold text-forest">
+                              {paymentDetails.accountNumber}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const copied = await copyToClipboard(paymentDetails.accountNumber);
+                                if (copied) {
+                                  setSuccessMessage("Payment number copied.");
+                                }
+                              }}
+                              className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-forest px-3 py-1 text-sm font-semibold text-forest transition hover:bg-forest hover:text-white"
+                            >
+                              <FiCopy aria-hidden="true" />
+                              Copy
+                            </button>
+                          </div>
+                          <p className="mt-2 text-sm">
+                            {paymentDetails.bankName || paymentDetails.merchantName || "-"}
+                            {paymentDetails.accountName ? ` · ${paymentDetails.accountName}` : ""}
+                          </p>
+                        </div>
+                      ) : null}
+
+                      {paymentDetails?.qrisCode ? (
+                        <div className="mt-3 rounded border border-green-100 bg-cream p-3">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">
+                            QRIS reference
+                          </p>
+                          <p className="mt-1 break-all font-semibold text-forest">
+                            {paymentDetails.qrisCode}
+                          </p>
+                        </div>
+                      ) : null}
+
+                      {paymentDetails?.instructions ? (
+                        <p className="mt-3 whitespace-pre-line text-sm text-gray-700">
+                          {paymentDetails.instructions}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {error ? (
@@ -885,7 +1167,13 @@ export default function BookingSection({ highlight }) {
 
         <button
           type="submit"
-          disabled={loading || roomsLoading || roomOptions.length === 0}
+          disabled={
+            loading ||
+            roomsLoading ||
+            paymentOptionsLoading ||
+            roomOptions.length === 0 ||
+            paymentOptions.length === 0
+          }
           className="mt-4 w-full rounded bg-forest py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
         >
           {loading ? "Submitting..." : "Create Booking"}
@@ -917,35 +1205,103 @@ export default function BookingSection({ highlight }) {
               </p>
             </div>
 
-            {providerPayload?.paymentInstructions ? (
+            {paymentInstructions ? (
               <div className="mt-3 rounded bg-cream p-3">
-                {providerPayload.paymentMethod === "virtual_account" ? (
-                  <p>
-                    VA {providerPayload.paymentInstructions.bankCode}:{" "}
-                    <span className="font-semibold">
-                      {providerPayload.paymentInstructions.virtualAccountNumber}
-                    </span>
-                  </p>
+                <p className="font-semibold text-forest">
+                  {paymentDetails?.name || paymentMethodLabels[latestPayment?.paymentMethod]}
+                </p>
+
+                {paymentImageUrl ? (
+                  <img
+                    src={paymentImageUrl}
+                    alt="Payment QRIS"
+                    className="mt-3 max-h-72 w-full rounded border border-green-100 bg-white object-contain p-2"
+                  />
                 ) : null}
 
-                {providerPayload.paymentMethod === "qris" ? (
-                  <p>
-                    QRIS reference:{" "}
-                    <span className="font-semibold">
-                      {providerPayload.paymentInstructions.qrString}
-                    </span>
-                  </p>
+                {paymentAccountNumber ? (
+                  <div className="mt-3 rounded border border-green-100 bg-white p-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">
+                      {latestPayment?.paymentMethod === "virtual_account"
+                        ? "Virtual account number"
+                        : latestPayment?.paymentMethod === "other"
+                          ? "Reference"
+                        : "Account number"}
+                    </p>
+                    <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-lg font-bold text-forest">
+                        {paymentAccountNumber}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const copied = await copyToClipboard(paymentAccountNumber);
+                          if (copied) {
+                            setSuccessMessage("Payment number copied.");
+                          }
+                        }}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-forest px-3 py-1 text-sm font-semibold text-forest transition hover:bg-forest hover:text-white"
+                      >
+                        <FiCopy aria-hidden="true" />
+                        Copy
+                      </button>
+                    </div>
+                    <p className="mt-2 text-sm">
+                      {paymentDetails?.bankName || paymentDetails?.merchantName || "-"}
+                      {paymentDetails?.accountName
+                        ? ` · ${paymentDetails.accountName}`
+                        : ""}
+                    </p>
+                  </div>
                 ) : null}
 
-                {providerPayload.paymentMethod === "manual_transfer" ? (
-                  <p>
-                    Transfer to {providerPayload.paymentInstructions.bankName}{" "}
-                    <span className="font-semibold">
-                      {providerPayload.paymentInstructions.accountNumber}
-                    </span>{" "}
-                    under {providerPayload.paymentInstructions.accountName}.
+                {paymentDetails?.qrisCode ? (
+                  <div className="mt-3 rounded border border-green-100 bg-white p-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">
+                      QRIS reference
+                    </p>
+                    <p className="mt-1 break-all font-semibold text-forest">
+                      {paymentDetails.qrisCode}
+                    </p>
+                  </div>
+                ) : null}
+
+                {paymentDetails?.instructions ? (
+                  <p className="mt-3 whitespace-pre-line text-sm text-gray-700">
+                    {paymentDetails.instructions}
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {latestPayment?.proofImageUrl ? (
+              <div className="mt-3 rounded border border-green-200 bg-green-50 p-3">
+                <p className="font-semibold text-forest">Payment proof uploaded</p>
+                <a href={latestPayment.proofImageUrl} target="_blank" rel="noreferrer" className="mt-2 block text-green-800 underline">
+                  View uploaded proof
+                </a>
+              </div>
+            ) : null}
+
+            {canUploadProof ? (
+              <div className="mt-3 rounded border border-green-100 bg-white p-3">
+                <p className="font-semibold text-forest">Upload payment proof</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => setProofImage(event.target.files?.[0] || null)}
+                    className="rounded border bg-white p-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleProofUpload}
+                    disabled={proofUploading}
+                    className="rounded bg-forest px-4 py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  >
+                    {proofUploading ? "Uploading..." : "Submit Proof"}
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -967,6 +1323,10 @@ export default function BookingSection({ highlight }) {
                 <p>
                   <span className="font-semibold text-forest">Invoice status:</span>{" "}
                   {invoice.invoiceStatus}
+                </p>
+                <p>
+                  <span className="font-semibold text-forest">Email:</span>{" "}
+                  {invoice.emailStatus || "pending"}
                 </p>
               </div>
             ) : null}

@@ -58,10 +58,12 @@ export const roomApi = {
 };
 
 export const paymentApi = {
-  createPayment: (bookingId, paymentMethod) =>
+  createPayment: (bookingId, payload) =>
     apiRequest(`/payments/${bookingId}/create`, {
       method: "POST",
-      body: JSON.stringify({ paymentMethod }),
+      body: JSON.stringify(
+        typeof payload === "string" ? { paymentMethod: payload } : payload
+      ),
     }),
 
   uploadProof: async (paymentId, file) => {
@@ -77,6 +79,10 @@ export const paymentApi = {
   },
 
   getByBooking: (bookingId) => apiRequest(`/payments/booking/${bookingId}`),
+};
+
+export const paymentOptionApi = {
+  listActive: () => apiRequest("/payments/options/active"),
 };
 
 export const invoiceApi = {

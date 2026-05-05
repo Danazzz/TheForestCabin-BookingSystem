@@ -22,6 +22,12 @@ const {
   createAdminGalleryImage,
   deleteAdminGalleryImage
 } = require("../controllers/galleryController");
+const {
+  listAdminPaymentOptions,
+  createAdminPaymentOption,
+  updateAdminPaymentOption,
+  deleteAdminPaymentOption
+} = require("../controllers/paymentOptionController");
 const { protect, adminOnly } = require("../middlewares/authMiddleware");
 const { uploadContentImage } = require("../middlewares/uploadMiddleware");
 
@@ -34,6 +40,14 @@ router.get("/bookings/waiting-approval", getWaitingApprovalBookings);
 router.get("/bookings/:id", getAdminBookingDetail);
 router.patch("/payments/:paymentId/approve", approvePayment);
 router.patch("/payments/:paymentId/reject", rejectPayment);
+router
+  .route("/payment-options")
+  .get(listAdminPaymentOptions)
+  .post(uploadContentImage, createAdminPaymentOption);
+router
+  .route("/payment-options/:id")
+  .patch(uploadContentImage, updateAdminPaymentOption)
+  .delete(deleteAdminPaymentOption);
 router.get("/calendar", getAdminCalendarEvents);
 router.get("/calendar/grid", getCalendarGrid);
 router.post("/availability/check", checkAdminAvailability);

@@ -1,7 +1,8 @@
 const mongoose = require("mongoose");
 
 const invoiceStatuses = ["paid", "cancelled"];
-const paymentMethods = ["manual_transfer", "qris", "virtual_account"];
+const paymentMethods = ["manual_transfer", "virtual_account", "qris", "other"];
+const invoiceEmailStatuses = ["pending", "sent", "failed", "not_configured"];
 
 const invoiceItemSchema = new mongoose.Schema(
   {
@@ -96,6 +97,21 @@ const invoiceSchema = new mongoose.Schema(
       default: "paid",
       index: true
     },
+    emailStatus: {
+      type: String,
+      enum: invoiceEmailStatuses,
+      default: "pending",
+      index: true
+    },
+    emailedAt: {
+      type: Date,
+      default: null
+    },
+    emailError: {
+      type: String,
+      trim: true,
+      default: ""
+    },
     issuedAt: {
       type: Date,
       default: Date.now
@@ -106,3 +122,4 @@ const invoiceSchema = new mongoose.Schema(
 
 module.exports = mongoose.model("Invoice", invoiceSchema);
 module.exports.invoiceStatuses = invoiceStatuses;
+module.exports.invoiceEmailStatuses = invoiceEmailStatuses;

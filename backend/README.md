@@ -35,9 +35,18 @@ MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
 UPLOAD_BASE_URL=http://localhost:5000
 MAX_UPLOAD_SIZE_MB=5
+USER_FRONTEND_URL=http://localhost:5173
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM="The Forest Cabin <reservations@theforestcabin.local>"
 ```
 
 Payment proof upload currently uses Multer local storage at `/uploads/payment-proofs`. Set `UPLOAD_BASE_URL` to the deployed backend URL in production, or replace the upload middleware with Cloudinary storage before deploying to non-persistent hosts.
+
+Invoice email uses SMTP through Nodemailer. If SMTP is not configured, bookings can still be approved and invoices are still generated; the invoice email status becomes `not_configured`.
 
 ## Rooms
 
@@ -147,7 +156,13 @@ Check booking status:
 GET /api/bookings/code/TFC-20260503-ABCDE
 ```
 
-Create payment:
+List active payment options shown to guests:
+
+```http
+GET /api/payments/options/active
+```
+
+Create payment from a configured payment option:
 
 ```http
 POST /api/payments/:bookingId/create
@@ -156,21 +171,14 @@ Content-Type: application/json
 
 ```json
 {
-  "paymentMethod": "manual_transfer"
+  "paymentMethod": "manual_transfer",
+  "paymentOptionId": "PAYMENT_OPTION_OBJECT_ID"
 }
 ```
 
-Other placeholder methods:
+Payment methods are `manual_transfer`, `virtual_account`, `qris`, and `other`. They are manual/Xendit-like display methods, so guests still upload proof and admins approve. Public payment options are ordered automatically as transfer, virtual account, QRIS, then other.
 
-```json
-{ "paymentMethod": "qris" }
-```
-
-```json
-{ "paymentMethod": "virtual_account" }
-```
-
-Upload manual transfer proof:
+Upload payment proof:
 
 ```http
 POST /api/payments/:paymentId/upload-proof
@@ -198,6 +206,17 @@ GET /api/admin/bookings
 GET /api/admin/bookings/waiting-approval
 GET /api/admin/bookings/:id
 ```
+
+Payment option management:
+
+```http
+GET /api/admin/payment-options?includeInactive=true
+POST /api/admin/payment-options
+PATCH /api/admin/payment-options/:id
+DELETE /api/admin/payment-options/:id
+```
+
+`POST` and `PATCH` support JSON with `imageUrl` or `multipart/form-data` with optional image field `image` for QRIS and other payment images. Bank transfer and virtual account options require `bankName`, `accountName`, and `accountNumber`. QRIS options require an image or `qrisCode`. Other payment options require a payment name in `merchantName`.
 
 Approve payment and booking:
 

@@ -7,6 +7,7 @@ const {
   createCalendarEventForBooking
 } = require("./calendarService");
 const { generateInvoiceForBooking } = require("./invoiceService");
+const { sendInvoiceEmail } = require("./emailService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
 const APPROVAL_UNAVAILABLE_MESSAGE =
@@ -28,7 +29,7 @@ const getBookingApprovalPayload = async (bookingId, { session } = {}) => {
 };
 
 const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
-  return runWithOptionalTransaction(async (session) => {
+  const result = await runWithOptionalTransaction(async (session) => {
     const payment = await Payment.findById(paymentId).session(session || null);
 
     if (!payment) {
@@ -52,8 +53,8 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
       throw new AppError("Cancelled booking cannot be approved", 409);
     }
 
-    if (payment.paymentMethod === "manual_transfer" && !payment.proofImageUrl) {
-      throw new AppError("Manual transfer payment requires proof upload before approval", 400);
+    if (!payment.proofImageUrl) {
+      throw new AppError("Payment proof is required before approval", 400);
     }
 
     await assertAvailability(
@@ -94,6 +95,15 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
 
     return getBookingApprovalPayload(booking._id, { session });
   });
+
+  const invoiceId = result?.booking?.invoiceId?._id || result?.booking?.invoiceId;
+
+  if (invoiceId) {
+    await sendInvoiceEmail(invoiceId).catch(() => null);
+    return getBookingApprovalPayload(result.booking._id);
+  }
+
+  return result;
 };
 
 const rejectPayment = async (

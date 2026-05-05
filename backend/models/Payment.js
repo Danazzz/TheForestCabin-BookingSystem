@@ -1,7 +1,68 @@
 const mongoose = require("mongoose");
 
-const paymentMethods = ["manual_transfer", "qris", "virtual_account"];
+const paymentMethods = ["manual_transfer", "virtual_account", "qris", "other"];
 const paymentStatuses = ["pending", "paid", "rejected"];
+
+const paymentOptionSnapshotSchema = new mongoose.Schema(
+  {
+    paymentOptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PaymentOption",
+      default: null
+    },
+    name: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    paymentMethod: {
+      type: String,
+      enum: paymentMethods,
+      default: "manual_transfer"
+    },
+    providerLabel: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    bankName: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    accountName: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    accountNumber: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    merchantName: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    qrisCode: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    imageUrl: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    instructions: {
+      type: String,
+      trim: true,
+      default: ""
+    }
+  },
+  { _id: false }
+);
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -16,6 +77,16 @@ const paymentSchema = new mongoose.Schema(
       enum: paymentMethods,
       required: [true, "paymentMethod is required"],
       index: true
+    },
+    paymentOptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PaymentOption",
+      default: null,
+      index: true
+    },
+    paymentOptionSnapshot: {
+      type: paymentOptionSnapshotSchema,
+      default: null
     },
     amount: {
       type: Number,
