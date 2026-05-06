@@ -4,12 +4,14 @@ const {
   createManualBooking,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
+  updateBookingGuestEmail,
   approvePayment,
   rejectPayment,
   approveBookingAvailability,
   rejectBookingAvailability,
   cancelAdminBooking,
   sendPaymentReminder,
+  resendBookingEmail,
   checkAdminAvailability
 } = require("../controllers/adminController");
 const {
@@ -48,10 +50,12 @@ router.get("/bookings", getAdminBookings);
 router.post("/bookings/manual", createManualBooking);
 router.get("/bookings/waiting-approval", getWaitingApprovalBookings);
 router.get("/bookings/:id", getAdminBookingDetail);
+router.patch("/bookings/:id/guest-email", updateBookingGuestEmail);
 router.patch("/bookings/:id/availability/approve", approveBookingAvailability);
 router.patch("/bookings/:id/availability/reject", rejectBookingAvailability);
 router.patch("/bookings/:id/cancel", cancelAdminBooking);
 router.post("/bookings/:id/payment-reminder", sendPaymentReminder);
+router.post("/bookings/:id/email/resend", resendBookingEmail);
 router.patch("/payments/:paymentId/approve", approvePayment);
 router.patch("/payments/:paymentId/reject", rejectPayment);
 router

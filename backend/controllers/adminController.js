@@ -16,8 +16,14 @@ const {
   approveAvailability: approveAvailabilityService,
   rejectAvailability: rejectAvailabilityService
 } = require("../services/availabilityReviewService");
-const { sendPaymentReminderEmail } = require("../services/emailService");
+const {
+  sendAvailabilityApprovedEmail,
+  sendNoRoomAvailableEmail,
+  sendPaymentReminderEmail
+} = require("../services/emailService");
 const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
+
+const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
 
 const attachLatestPayments = async (bookings) => {
   const bookingIds = bookings.map((booking) => booking._id);
@@ -123,6 +129,45 @@ const getAdminBookingDetail = asyncHandler(async (req, res) => {
   });
 });
 
+const getPopulatedBooking = (bookingId) =>
+  Booking.findById(bookingId)
+    .populate("calendarEventId")
+    .populate("invoiceId")
+    .populate("paymentId")
+    .populate("roomId");
+
+const updateBookingGuestEmail = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+
+  if (req.body?.guestEmail === undefined) {
+    throw new AppError("guestEmail is required", 400);
+  }
+
+  const guestEmail = String(req.body.guestEmail || "").trim().toLowerCase();
+
+  if (guestEmail && !EMAIL_PATTERN.test(guestEmail)) {
+    throw new AppError("guestEmail must be a valid email", 400);
+  }
+
+  const booking = await Booking.findById(req.params.id);
+
+  if (!booking) {
+    throw new AppError("Booking not found", 404);
+  }
+
+  booking.guestEmail = guestEmail;
+  booking.emailDeliveryStatus = "pending";
+  booking.emailDeliveryError = "";
+  booking.emailDeliveryRecipient = guestEmail;
+  booking.emailLastAttemptedAt = null;
+  booking.emailLastSentAt = null;
+  await booking.save();
+
+  const updatedBooking = await getPopulatedBooking(booking._id);
+
+  sendResponse(res, 200, "Guest email updated successfully", updatedBooking);
+});
+
 const approvePayment = asyncHandler(async (req, res) => {
   validateObjectId(req.params.paymentId, "payment id");
 
@@ -213,6 +258,52 @@ const sendPaymentReminder = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Payment reminder processed", result);
 });
 
+const assertPaymentReminderAllowed = (booking) => {
+  if (booking.bookingStatus !== "pending_payment") {
+    throw new AppError("Payment reminders can only be sent for pending payment bookings", 409);
+  }
+
+  if (booking.paymentDueAt && new Date(booking.paymentDueAt) < new Date()) {
+    throw new AppError("Payment deadline has passed. Cancel or update this booking manually.", 409);
+  }
+};
+
+const resendBookingEmail = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+  const booking = await Booking.findById(req.params.id);
+
+  if (!booking) {
+    throw new AppError("Booking not found", 404);
+  }
+
+  let result;
+
+  if (booking.bookingStatus === "pending_payment") {
+    assertPaymentReminderAllowed(booking);
+
+    result = booking.emailDeliveryType === "availability_approved"
+      ? await sendAvailabilityApprovedEmail(booking._id)
+      : await sendPaymentReminderEmail(booking._id);
+  } else if (
+    booking.bookingStatus === "rejected" &&
+    booking.rejectionReason === "no_room_available"
+  ) {
+    result = await sendNoRoomAvailableEmail(booking._id);
+  } else {
+    throw new AppError(
+      "No resendable booking email is available for this booking status",
+      409
+    );
+  }
+
+  const updatedBooking = await getPopulatedBooking(booking._id);
+
+  sendResponse(res, 200, "Booking email resend processed", {
+    email: result,
+    booking: updatedBooking
+  });
+});
+
 const checkAdminAvailability = asyncHandler(async (req, res) => {
   requireFields(req.body, ["roomId", "checkIn", "checkOut"]);
   validateObjectId(req.body.roomId, "room id");
@@ -239,11 +330,13 @@ module.exports = {
   createManualBooking,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
+  updateBookingGuestEmail,
   approvePayment,
   rejectPayment,
   approveBookingAvailability,
   rejectBookingAvailability,
   cancelAdminBooking,
   sendPaymentReminder,
+  resendBookingEmail,
   checkAdminAvailability
 };

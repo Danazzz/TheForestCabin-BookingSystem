@@ -352,7 +352,31 @@ const buildBookingStatusEmailHtml = ({ booking, settings, title, message, button
   `;
 };
 
-const sendBookingStatusEmail = async ({ bookingId, subject, title, message, buttonLabel }) => {
+const markBookingEmailDelivery = async (
+  booking,
+  { status, type, recipient, error = "", sent = false }
+) => {
+  booking.emailDeliveryStatus = status;
+  booking.emailDeliveryType = type;
+  booking.emailDeliveryRecipient = recipient || booking.guestEmail || "";
+  booking.emailDeliveryError = error;
+  booking.emailLastAttemptedAt = new Date();
+
+  if (sent) {
+    booking.emailLastSentAt = new Date();
+  }
+
+  await booking.save();
+};
+
+const sendBookingStatusEmail = async ({
+  bookingId,
+  emailType,
+  subject,
+  title,
+  message,
+  buttonLabel
+}) => {
   const booking = await Booking.findById(bookingId).populate("roomId");
 
   if (!booking) {
@@ -360,35 +384,71 @@ const sendBookingStatusEmail = async ({ bookingId, subject, title, message, butt
   }
 
   if (!booking.guestEmail) {
+    await markBookingEmailDelivery(booking, {
+      status: "skipped",
+      type: emailType,
+      error: "Guest email is not available"
+    });
+
     return { sent: false, reason: "guest_email_missing" };
   }
 
   if (!isSmtpConfigured()) {
+    await markBookingEmailDelivery(booking, {
+      status: "not_configured",
+      type: emailType,
+      recipient: booking.guestEmail,
+      error: "SMTP_HOST and SMTP_FROM are not configured"
+    });
+
     return { sent: false, reason: "smtp_not_configured" };
   }
 
-  const settings = buildInvoiceSettingsSnapshot(await getInvoiceSettings());
-  const transport = buildTransport();
+  try {
+    const settings = buildInvoiceSettingsSnapshot(await getInvoiceSettings());
+    const transport = buildTransport();
 
-  await transport.sendMail({
-    from: process.env.SMTP_FROM,
-    to: booking.guestEmail,
-    subject: subject.replace("{{businessName}}", settings.businessName),
-    html: buildBookingStatusEmailHtml({
-      booking,
-      settings,
-      title,
-      message,
-      buttonLabel
-    })
-  });
+    await transport.sendMail({
+      from: process.env.SMTP_FROM,
+      to: booking.guestEmail,
+      subject: subject.replace("{{businessName}}", settings.businessName),
+      html: buildBookingStatusEmailHtml({
+        booking,
+        settings,
+        title,
+        message,
+        buttonLabel
+      })
+    });
 
-  return { sent: true };
+    await markBookingEmailDelivery(booking, {
+      status: "sent",
+      type: emailType,
+      recipient: booking.guestEmail,
+      sent: true
+    });
+
+    return { sent: true };
+  } catch (error) {
+    await markBookingEmailDelivery(booking, {
+      status: "failed",
+      type: emailType,
+      recipient: booking.guestEmail,
+      error: error.message || "Failed to send booking email"
+    });
+
+    return {
+      sent: false,
+      reason: "send_failed",
+      error: error.message || "Failed to send booking email"
+    };
+  }
 };
 
 const sendAvailabilityApprovedEmail = (bookingId) =>
   sendBookingStatusEmail({
     bookingId,
+    emailType: "availability_approved",
     subject: "{{businessName}} booking request approved",
     title: "Booking Request Approved",
     message:
@@ -399,6 +459,7 @@ const sendAvailabilityApprovedEmail = (bookingId) =>
 const sendNoRoomAvailableEmail = (bookingId) =>
   sendBookingStatusEmail({
     bookingId,
+    emailType: "availability_rejected",
     subject: "{{businessName}} booking request update",
     title: "Requested Dates Are Not Available",
     message:
@@ -409,6 +470,7 @@ const sendNoRoomAvailableEmail = (bookingId) =>
 const sendPaymentReminderEmail = (bookingId) =>
   sendBookingStatusEmail({
     bookingId,
+    emailType: "payment_reminder",
     subject: "{{businessName}} payment reminder",
     title: "Payment Reminder",
     message:

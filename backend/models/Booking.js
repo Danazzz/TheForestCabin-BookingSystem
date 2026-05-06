@@ -24,6 +24,18 @@ const rejectionReasons = [
   "guest_cancelled",
   "other"
 ];
+const bookingEmailDeliveryStatuses = [
+  "pending",
+  "sent",
+  "failed",
+  "not_configured",
+  "skipped"
+];
+const bookingEmailDeliveryTypes = [
+  "availability_approved",
+  "availability_rejected",
+  "payment_reminder"
+];
 
 const bookingSchema = new mongoose.Schema(
   {
@@ -50,6 +62,36 @@ const bookingSchema = new mongoose.Schema(
         validator: (value) => !value || /^\S+@\S+\.\S+$/.test(value),
         message: "guestEmail must be a valid email"
       }
+    },
+    emailDeliveryStatus: {
+      type: String,
+      enum: bookingEmailDeliveryStatuses,
+      default: "pending",
+      index: true
+    },
+    emailDeliveryType: {
+      type: String,
+      enum: bookingEmailDeliveryTypes,
+      default: null
+    },
+    emailDeliveryRecipient: {
+      type: String,
+      default: "",
+      lowercase: true,
+      trim: true
+    },
+    emailDeliveryError: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    emailLastAttemptedAt: {
+      type: Date,
+      default: null
+    },
+    emailLastSentAt: {
+      type: Date,
+      default: null
     },
     guestPhone: {
       type: String,
@@ -237,3 +279,5 @@ module.exports.bookingStatuses = bookingStatuses;
 module.exports.paymentStatuses = paymentStatuses;
 module.exports.bookingSources = bookingSources;
 module.exports.rejectionReasons = rejectionReasons;
+module.exports.bookingEmailDeliveryStatuses = bookingEmailDeliveryStatuses;
+module.exports.bookingEmailDeliveryTypes = bookingEmailDeliveryTypes;

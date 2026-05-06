@@ -216,10 +216,12 @@ GET /api/admin/bookings
 POST /api/admin/bookings/manual
 GET /api/admin/bookings/waiting-approval
 GET /api/admin/bookings/:id
+PATCH /api/admin/bookings/:id/guest-email
 PATCH /api/admin/bookings/:id/availability/approve
 PATCH /api/admin/bookings/:id/availability/reject
 PATCH /api/admin/bookings/:id/cancel
 POST /api/admin/bookings/:id/payment-reminder
+POST /api/admin/bookings/:id/email/resend
 ```
 
 Availability review:
@@ -256,6 +258,28 @@ configured.
 
 Payment reminders can be sent for bookings with `pending_payment` status. The
 email points guests back to the frontend status page through `USER_FRONTEND_URL`.
+
+If a guest enters the wrong email, update it from admin booking detail:
+
+```http
+PATCH /api/admin/bookings/:id/guest-email
+Content-Type: application/json
+```
+
+```json
+{
+  "guestEmail": "correct-email@example.com"
+}
+```
+
+Booking email delivery is tracked on the booking record with
+`emailDeliveryStatus`, `emailDeliveryType`, `emailDeliveryRecipient`,
+`emailDeliveryError`, `emailLastAttemptedAt`, and `emailLastSentAt`. After
+fixing an email address, resend the relevant booking email:
+
+```http
+POST /api/admin/bookings/:id/email/resend
+```
 
 Create a manual admin booking:
 
