@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 
 const bookingStatuses = [
+  "waiting_availability_approval",
   "pending_payment",
   "waiting_admin_approval",
   "success",
@@ -65,7 +66,7 @@ const bookingSchema = new mongoose.Schema(
     roomId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Room",
-      required: [true, "roomId is required"],
+      default: null,
       index: true
     },
     roomType: {
@@ -120,7 +121,7 @@ const bookingSchema = new mongoose.Schema(
     bookingStatus: {
       type: String,
       enum: bookingStatuses,
-      default: "pending_payment",
+      default: "waiting_availability_approval",
       index: true
     },
     paymentStatus: {
@@ -165,11 +166,35 @@ const bookingSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    availabilityApprovedAt: {
+      type: Date,
+      default: null
+    },
+    availabilityApprovedBy: {
+      type: String,
+      trim: true,
+      default: null
+    },
     rejectedAt: {
       type: Date,
       default: null
     },
     rejectedBy: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    cancellationReason: {
+      type: String,
+      enum: rejectionReasons,
+      default: null,
+      index: true
+    },
+    cancelledAt: {
+      type: Date,
+      default: null
+    },
+    cancelledBy: {
       type: String,
       trim: true,
       default: null

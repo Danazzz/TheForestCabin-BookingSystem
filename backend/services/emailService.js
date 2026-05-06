@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const Invoice = require("../models/Invoice");
+const Booking = require("../models/Booking");
 const {
   getInvoiceSettings,
   buildInvoiceSettingsSnapshot,
@@ -51,6 +52,16 @@ const buildTransport = () => {
 
 const buildInvoiceUrl = (bookingCode, settings) => {
   if (!settings.includeBookingStatusLink || !process.env.USER_FRONTEND_URL) {
+    return "";
+  }
+
+  const baseUrl = process.env.USER_FRONTEND_URL.replace(/\/$/, "");
+
+  return `${baseUrl}/?bookingCode=${encodeURIComponent(bookingCode || "")}`;
+};
+
+const buildBookingStatusUrl = (bookingCode) => {
+  if (!process.env.USER_FRONTEND_URL) {
     return "";
   }
 
@@ -261,6 +272,118 @@ const sendInvoiceEmail = async (invoiceId) => {
   }
 };
 
+const buildBookingStatusEmailHtml = ({ booking, settings, title, message, buttonLabel }) => {
+  const primaryColor = settings.primaryColor || "#174f37";
+  const accentColor = settings.accentColor || "#f6f3ea";
+  const bookingUrl = buildBookingStatusUrl(booking.bookingCode);
+  const roomLabel = booking.roomId
+    ? `${booking.roomId.roomNumber} · ${booking.roomId.name || booking.roomType}`
+    : booking.roomType;
+
+  return `
+    <div style="margin:0;background:${escapeHtml(accentColor)};padding:24px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+        <div style="background:${escapeHtml(primaryColor)};color:#ffffff;padding:24px;">
+          ${
+            settings.logoUrl
+              ? `<img src="${escapeHtml(settings.logoUrl)}" alt="${escapeHtml(settings.businessName)}" style="max-height:56px;max-width:180px;margin-bottom:16px;display:block;" />`
+              : ""
+          }
+          <p style="margin:0;font-size:14px;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(settings.businessName)}</p>
+          <h1 style="margin:8px 0 0;font-size:24px;">${escapeHtml(title)}</h1>
+        </div>
+        <div style="padding:24px;">
+          <p style="margin:0 0 16px;">${escapeHtml(message)}</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Booking code</td>
+              <td style="padding:6px 0;text-align:right;font-weight:bold;">${escapeHtml(booking.bookingCode)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Guest</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(booking.guestName)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Room</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(roomLabel)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Stay dates</td>
+              <td style="padding:6px 0;text-align:right;">${formatDate(booking.checkIn)} - ${formatDate(booking.checkOut)}</td>
+            </tr>
+          </table>
+          ${
+            bookingUrl
+              ? `<p style="margin-top:24px;"><a href="${bookingUrl}" style="display:inline-block;background:${escapeHtml(primaryColor)};color:#ffffff;padding:12px 16px;border-radius:6px;text-decoration:none;font-weight:bold;">${escapeHtml(buttonLabel)}</a></p>`
+              : ""
+          }
+          ${
+            settings.footerNote
+              ? `<p style="margin-top:20px;color:#6b7280;font-size:12px;">${escapeHtml(settings.footerNote)}</p>`
+              : ""
+          }
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+const sendBookingStatusEmail = async ({ bookingId, subject, title, message, buttonLabel }) => {
+  const booking = await Booking.findById(bookingId).populate("roomId");
+
+  if (!booking) {
+    return { sent: false, reason: "booking_not_found" };
+  }
+
+  if (!booking.guestEmail) {
+    return { sent: false, reason: "guest_email_missing" };
+  }
+
+  if (!isSmtpConfigured()) {
+    return { sent: false, reason: "smtp_not_configured" };
+  }
+
+  const settings = buildInvoiceSettingsSnapshot(await getInvoiceSettings());
+  const transport = buildTransport();
+
+  await transport.sendMail({
+    from: process.env.SMTP_FROM,
+    to: booking.guestEmail,
+    subject: subject.replace("{{businessName}}", settings.businessName),
+    html: buildBookingStatusEmailHtml({
+      booking,
+      settings,
+      title,
+      message,
+      buttonLabel
+    })
+  });
+
+  return { sent: true };
+};
+
+const sendAvailabilityApprovedEmail = (bookingId) =>
+  sendBookingStatusEmail({
+    bookingId,
+    subject: "{{businessName}} booking request approved",
+    title: "Booking Request Approved",
+    message:
+      "Good news, your requested dates are available. Please continue with the payment instructions to secure your booking.",
+    buttonLabel: "Continue Payment"
+  });
+
+const sendNoRoomAvailableEmail = (bookingId) =>
+  sendBookingStatusEmail({
+    bookingId,
+    subject: "{{businessName}} booking request update",
+    title: "Requested Dates Are Not Available",
+    message:
+      "Thank you for your booking request. Unfortunately, the room is not available for your requested dates. Please choose another date or contact us for assistance.",
+    buttonLabel: "Check Booking Status"
+  });
+
 module.exports = {
-  sendInvoiceEmail
+  sendInvoiceEmail,
+  sendAvailabilityApprovedEmail,
+  sendNoRoomAvailableEmail
 };

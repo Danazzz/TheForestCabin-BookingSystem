@@ -25,6 +25,15 @@ const paymentMethodPriority = {
   other: 4,
 };
 
+const bookingStatusLabels = {
+  waiting_availability_approval: "Waiting for admin availability review",
+  pending_payment: "Approved, waiting for payment",
+  waiting_admin_approval: "Waiting for payment proof review",
+  success: "Confirmed",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+};
+
 const currencyFormatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
   currency: "IDR",
@@ -151,6 +160,15 @@ const formatPromoRule = (promo) => {
 
   return "No price change";
 };
+
+const formatRoomType = (roomType) =>
+  String(roomType || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const getBookingStatusLabel = (status) => bookingStatusLabels[status] || status || "-";
 
 const getPaymentOptionSummary = (paymentOption) => {
   if (!paymentOption) {
@@ -358,9 +376,9 @@ export default function BookingSection({ highlight }) {
             paymentOptionId: previous.paymentOptionId || options[0]?._id || "",
           }));
         }
-      } catch (paymentOptionError) {
+      } catch {
         if (!ignore) {
-          setError(normalizeError(paymentOptionError));
+          setPaymentOptions([]);
         }
       } finally {
         if (!ignore) {
@@ -515,10 +533,6 @@ export default function BookingSection({ highlight }) {
       return `${selectedRoom.roomType} can host up to ${selectedRoom.childCapacity} children.`;
     }
 
-    if (!selectedPaymentOption) {
-      return "No active payment method is available yet. Please contact admin.";
-    }
-
     return "";
   };
 
@@ -553,7 +567,7 @@ export default function BookingSection({ highlight }) {
         ...previous,
         booking,
         payments: paymentResponse.data,
-        payment: paymentResponse.data?.[0] || previous?.payment || null,
+        payment: paymentResponse.data?.[0] || null,
       }));
 
       await loadInvoiceIfAvailable(booking._id);
@@ -612,19 +626,6 @@ export default function BookingSection({ highlight }) {
     setLoading(true);
 
     try {
-      const availabilityResponse = await roomApi.checkAvailability({
-        roomType: selectedRoom.type,
-        checkIn: form.checkIn,
-        checkOut: form.checkOut,
-      });
-
-      setAvailabilityResult(availabilityResponse.data);
-
-      if (!availabilityResponse.data.available) {
-        setError("This room type is not available for the selected dates.");
-        return;
-      }
-
       const bookingResponse = await bookingApi.createBooking({
         guestName: form.guestName,
         guestEmail: form.guestEmail,
@@ -641,7 +642,47 @@ export default function BookingSection({ highlight }) {
       });
 
       const createdBooking = bookingResponse.data;
-      const paymentResponse = await paymentApi.createPayment(createdBooking._id, {
+
+      setBookingResult({
+        booking: createdBooking,
+        payment: null,
+        payments: [],
+        providerPayload: null,
+      });
+      setStatusCode(createdBooking.bookingCode || "");
+
+      setSuccessMessage(
+        `Booking request submitted. Your code is ${createdBooking.bookingCode}. Admin will check availability before payment is opened.`
+      );
+    } catch (submitError) {
+      setError(normalizeError(submitError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreatePayment = async () => {
+    if (!bookingResult?.booking?._id) {
+      setError("Submit or find a booking first.");
+      return;
+    }
+
+    if (bookingResult.booking.bookingStatus !== "pending_payment") {
+      setError("Payment is available after admin approves room availability.");
+      return;
+    }
+
+    if (!selectedPaymentOption) {
+      setError("No active payment method is available yet. Please contact admin.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const paymentResponse = await paymentApi.createPayment(bookingResult.booking._id, {
         paymentMethod: selectedPaymentOption.paymentMethod,
         paymentOptionId: selectedPaymentOption._id,
       });
@@ -651,8 +692,8 @@ export default function BookingSection({ highlight }) {
 
       currentBooking = {
         ...currentBooking,
-        bookingCode: currentBooking.bookingCode || createdBooking.bookingCode,
-        roomId: createdBooking.roomId,
+        bookingCode: currentBooking.bookingCode || bookingResult.booking.bookingCode,
+        roomId: currentBooking.roomId || bookingResult.booking.roomId,
       };
 
       setBookingResult({
@@ -664,10 +705,10 @@ export default function BookingSection({ highlight }) {
       setStatusCode(currentBooking.bookingCode || "");
 
       setSuccessMessage(
-        `Booking created. Your code is ${currentBooking.bookingCode}. Complete the payment instructions below, then upload your payment proof.`
+        "Payment instructions created. Complete the payment, then upload your payment proof."
       );
-    } catch (submitError) {
-      setError(normalizeError(submitError));
+    } catch (paymentError) {
+      setError(normalizeError(paymentError));
     } finally {
       setLoading(false);
     }
@@ -717,6 +758,10 @@ export default function BookingSection({ highlight }) {
   const paymentDetails = getPaymentDetails(paymentInstructions);
   const paymentImageUrl = paymentDetails?.imageUrl;
   const paymentAccountNumber = paymentDetails?.accountNumber;
+  const canCreatePayment =
+    bookingResult?.booking?.bookingStatus === "pending_payment" &&
+    !latestPayment &&
+    selectedPaymentOption;
   const canUploadProof =
     latestPayment &&
     latestPayment.paymentStatus !== "paid" &&
@@ -1029,16 +1074,38 @@ export default function BookingSection({ highlight }) {
 
         <div className="mt-4 rounded border bg-white p-4">
           <p className="text-sm font-semibold text-forest">Payment method</p>
-          {paymentOptionsLoading ? (
-            <p className="mt-3 text-sm text-gray-500">Loading payment methods...</p>
-          ) : null}
-          {!paymentOptionsLoading && paymentOptions.length === 0 ? (
-            <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              No active payment method is configured yet.
+          {!bookingResult?.booking ? (
+            <p className="mt-3 rounded bg-cream p-3 text-sm text-gray-700">
+              Payment will be opened after admin confirms room availability.
             </p>
           ) : null}
-          <div className="mt-3 space-y-3">
-            {paymentOptions.map((paymentOption) => {
+          {bookingResult?.booking?.bookingStatus === "waiting_availability_approval" ? (
+            <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              Admin is checking availability for your requested dates.
+            </p>
+          ) : null}
+          {["rejected", "cancelled"].includes(bookingResult?.booking?.bookingStatus) ? (
+            <p className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              Payment is not available for this booking status.
+            </p>
+          ) : null}
+          {bookingResult?.booking?.bookingStatus === "pending_payment" && latestPayment ? (
+            <p className="mt-3 rounded bg-cream p-3 text-sm text-gray-700">
+              Payment instructions have been created below.
+            </p>
+          ) : null}
+          {bookingResult?.booking?.bookingStatus === "pending_payment" && !latestPayment ? (
+            <>
+              {paymentOptionsLoading ? (
+                <p className="mt-3 text-sm text-gray-500">Loading payment methods...</p>
+              ) : null}
+              {!paymentOptionsLoading && paymentOptions.length === 0 ? (
+                <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  No active payment method is configured yet.
+                </p>
+              ) : null}
+              <div className="mt-3 space-y-3">
+                {paymentOptions.map((paymentOption) => {
               const isSelected = form.paymentOptionId === paymentOption._id;
               const paymentDetails = getPaymentDetails(paymentOption);
               const accountLabel =
@@ -1149,8 +1216,18 @@ export default function BookingSection({ highlight }) {
                   ) : null}
                 </div>
               );
-            })}
-          </div>
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={handleCreatePayment}
+                disabled={loading || paymentOptionsLoading || paymentOptions.length === 0 || !canCreatePayment}
+                className="mt-3 w-full rounded bg-forest py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                {loading ? "Creating payment..." : "Create payment instructions"}
+              </button>
+            </>
+          ) : null}
         </div>
 
         {error ? (
@@ -1170,9 +1247,7 @@ export default function BookingSection({ highlight }) {
           disabled={
             loading ||
             roomsLoading ||
-            paymentOptionsLoading ||
-            roomOptions.length === 0 ||
-            paymentOptions.length === 0
+            roomOptions.length === 0
           }
           className="mt-4 w-full rounded bg-forest py-2 font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-gray-400"
         >
@@ -1189,11 +1264,13 @@ export default function BookingSection({ highlight }) {
               <p>
                 <span className="font-semibold text-forest">Room:</span>{" "}
                 {bookingResult.booking.roomId?.roomNumber || "-"}{" "}
-                {bookingResult.booking.roomId?.name || selectedRoom.roomType}
+                {bookingResult.booking.roomId?.name ||
+                  selectedRoom?.roomType ||
+                  formatRoomType(bookingResult.booking.roomType)}
               </p>
               <p>
                 <span className="font-semibold text-forest">Booking status:</span>{" "}
-                {bookingResult.booking.bookingStatus}
+                {getBookingStatusLabel(bookingResult.booking.bookingStatus)}
               </p>
               <p>
                 <span className="font-semibold text-forest">Payment status:</span>{" "}

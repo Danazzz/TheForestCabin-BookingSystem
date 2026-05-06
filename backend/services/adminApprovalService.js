@@ -53,6 +53,10 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
       throw new AppError("Cancelled booking cannot be approved", 409);
     }
 
+    if (!booking.roomId) {
+      throw new AppError("Booking must be approved for availability before payment approval", 409);
+    }
+
     if (!payment.proofImageUrl) {
       throw new AppError("Payment proof is required before approval", 400);
     }

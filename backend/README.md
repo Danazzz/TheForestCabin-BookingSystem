@@ -135,6 +135,11 @@ POST /api/bookings
 Content-Type: application/json
 ```
 
+Guest booking requests now start as `waiting_availability_approval`. The guest
+does not create a payment yet. Admin must approve availability first; once
+approved, the booking becomes `pending_payment` and the guest can create payment
+instructions from the booking status page.
+
 ```json
 {
   "guestName": "John Doe",
@@ -168,6 +173,8 @@ Create payment from a configured payment option:
 POST /api/payments/:bookingId/create
 Content-Type: application/json
 ```
+
+Payment creation is only allowed when the booking status is `pending_payment`.
 
 ```json
 {
@@ -208,7 +215,42 @@ GET /api/admin/bookings
 POST /api/admin/bookings/manual
 GET /api/admin/bookings/waiting-approval
 GET /api/admin/bookings/:id
+PATCH /api/admin/bookings/:id/availability/approve
+PATCH /api/admin/bookings/:id/availability/reject
+PATCH /api/admin/bookings/:id/cancel
 ```
+
+Availability review:
+
+```http
+PATCH /api/admin/bookings/:id/availability/approve
+Content-Type: application/json
+```
+
+```json
+{
+  "roomId": "OPTIONAL_ROOM_OBJECT_ID",
+  "adminNote": "Room is available. Guest can continue payment."
+}
+```
+
+If `roomId` is omitted, the backend assigns the first available active room for
+the requested room type. Reject unavailable dates with:
+
+```http
+PATCH /api/admin/bookings/:id/availability/reject
+Content-Type: application/json
+```
+
+```json
+{
+  "rejectionReason": "no_room_available",
+  "adminNote": "Requested dates are not available."
+}
+```
+
+Availability approval and rejection both attempt to email the guest when SMTP is
+configured.
 
 Create a manual admin booking:
 
@@ -241,6 +283,22 @@ Manual admin bookings are intentionally simpler than website bookings:
 - `pending_payment` always means payment is `unpaid`
 - `success` always means payment is `paid`
 - `waiting_admin_approval` is reserved for website bookings where guests upload proof for admin review
+
+Cancel an admin booking:
+
+```http
+PATCH /api/admin/bookings/:id/cancel
+Content-Type: application/json
+```
+
+```json
+{
+  "cancellationReason": "guest_cancelled",
+  "adminNote": "Guest requested cancellation by phone."
+}
+```
+
+Cancelling a booking sets `bookingStatus` to `cancelled`, cancels its confirmed calendar event, cancels its invoice, and marks paid bookings as `refund_required`.
 
 Payment option management:
 

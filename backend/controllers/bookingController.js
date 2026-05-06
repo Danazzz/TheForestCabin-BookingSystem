@@ -1,11 +1,9 @@
 const Booking = require("../models/Booking");
-const Invoice = require("../models/Invoice");
 const Promo = require("../models/Promo");
 const Room = require("../models/Room");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
-const runWithOptionalTransaction = require("../utils/runWithOptionalTransaction");
 const {
   requireFields,
   validateDateRange,
@@ -14,11 +12,10 @@ const {
   validatePositiveNumber
 } = require("../utils/validators");
 const { bookingStatuses, paymentStatuses, bookingSources } = require("../models/Booking");
-const { cancelBookingCalendarEvent } = require("../services/calendarService");
+const { cancelBooking: cancelBookingService } = require("../services/bookingCancellationService");
 const {
-  assertRoomAvailable,
   assertRoomExistsAndActive,
-  findAvailableRoomByType
+  getRoomsByType
 } = require("../services/availabilityService");
 
 const getNights = (checkIn, checkOut) => {
@@ -74,6 +71,32 @@ const getActivePromo = async (promoId) => {
   return promo;
 };
 
+const getRoomTypeProfile = async (roomType) => {
+  const rooms = await getRoomsByType({ roomType });
+
+  if (rooms.length === 0) {
+    throw new AppError("No active room is configured for the selected room type", 400);
+  }
+
+  return rooms.reduce(
+    (profile, room) => ({
+      basePrice:
+        profile.basePrice === null
+          ? room.basePrice ?? 0
+          : Math.min(profile.basePrice, room.basePrice ?? profile.basePrice),
+      adultCapacity: Math.max(profile.adultCapacity, room.capacity || 0),
+      childCapacity: Math.max(profile.childCapacity, room.childCapacity || 0),
+      sampleRoom: profile.sampleRoom || room
+    }),
+    {
+      basePrice: null,
+      adultCapacity: 0,
+      childCapacity: 0,
+      sampleRoom: null
+    }
+  );
+};
+
 const createBooking = asyncHandler(async (req, res) => {
   requireFields(req.body, [
     "guestName",
@@ -103,45 +126,45 @@ const createBooking = asyncHandler(async (req, res) => {
     throw new AppError("roomType is required", 400);
   }
 
-  let room;
+  let requestedRoom = null;
+  let roomTypeProfile;
 
   if (req.body.roomId) {
     validateObjectId(req.body.roomId, "room id");
-    room = await assertRoomExistsAndActive(req.body.roomId);
+    requestedRoom = await assertRoomExistsAndActive(req.body.roomId);
 
-    if (room.roomType !== requestedRoomType) {
+    if (requestedRoom.roomType !== requestedRoomType) {
       throw new AppError("roomId does not match selected roomType", 400);
     }
 
-    await assertRoomAvailable({
-      roomId: room._id,
-      checkIn: startDate,
-      checkOut: endDate
-    });
-  } else {
-    room = await findAvailableRoomByType({
-      roomType: requestedRoomType,
-      checkIn: startDate,
-      checkOut: endDate
-    });
+    roomTypeProfile = {
+      basePrice: requestedRoom.basePrice,
+      adultCapacity: requestedRoom.capacity,
+      childCapacity: requestedRoom.childCapacity || 0,
+      sampleRoom: requestedRoom
+    };
   }
 
-  if (numberOfGuests > room.capacity) {
+  if (!roomTypeProfile) {
+    roomTypeProfile = await getRoomTypeProfile(requestedRoomType);
+  }
+
+  if (numberOfGuests > roomTypeProfile.adultCapacity) {
     throw new AppError(
-      `${room.name} ${room.roomNumber} can host up to ${room.capacity} adult guests`,
+      `Selected room type can host up to ${roomTypeProfile.adultCapacity} adult guests`,
       400
     );
   }
 
-  if (numberOfChildren > (room.childCapacity || 0)) {
+  if (numberOfChildren > roomTypeProfile.childCapacity) {
     throw new AppError(
-      `${room.name} ${room.roomNumber} can host up to ${room.childCapacity || 0} children`,
+      `Selected room type can host up to ${roomTypeProfile.childCapacity} children`,
       400
     );
   }
 
   const nights = getNights(startDate, endDate);
-  const subtotalAmount = room.basePrice * nights;
+  const subtotalAmount = roomTypeProfile.basePrice * nights;
   const promo = req.body.promoId ? await getActivePromo(req.body.promoId) : null;
   const totalAmount = promo
     ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
@@ -152,8 +175,8 @@ const createBooking = asyncHandler(async (req, res) => {
     guestEmail: req.body.guestEmail,
     guestPhone: req.body.guestPhone,
     propertyId: req.body.propertyId || "the-forest-cabin",
-    roomId: room._id,
-    roomType: room.roomType,
+    roomId: requestedRoom?._id || null,
+    roomType: requestedRoom?.roomType || requestedRoomType,
     checkIn: startDate,
     checkOut: endDate,
     numberOfGuests,
@@ -164,13 +187,13 @@ const createBooking = asyncHandler(async (req, res) => {
     promoAdjustmentType: promo?.adjustmentType || "",
     promoAdjustmentValue: promo?.adjustmentValue || 0,
     source,
-    bookingStatus: "pending_payment",
+    bookingStatus: "waiting_availability_approval",
     paymentStatus: "unpaid"
   });
 
   const createdBooking = await Booking.findById(booking._id).populate("roomId");
 
-  sendResponse(res, 201, "Booking created successfully", createdBooking);
+  sendResponse(res, 201, "Booking request submitted successfully", createdBooking);
 });
 
 const getBookings = asyncHandler(async (req, res) => {
@@ -244,39 +267,13 @@ const getBookingByCode = asyncHandler(async (req, res) => {
 const cancelBooking = asyncHandler(async (req, res) => {
   validateObjectId(req.params.id, "booking id");
 
-  const booking = await runWithOptionalTransaction(async (session) => {
-    const bookingToCancel = await Booking.findById(req.params.id).session(session || null);
-
-    if (!bookingToCancel) {
-      throw new AppError("Booking not found", 404);
-    }
-
-    if (bookingToCancel.bookingStatus === "cancelled") {
-      return bookingToCancel;
-    }
-
-    bookingToCancel.bookingStatus = "cancelled";
-    await bookingToCancel.save(session ? { session } : undefined);
-
-    await cancelBookingCalendarEvent(bookingToCancel._id, { session });
-
-    if (bookingToCancel.invoiceId) {
-      await Invoice.findByIdAndUpdate(
-        bookingToCancel.invoiceId,
-        { invoiceStatus: "cancelled" },
-        { new: true, ...(session ? { session } : {}) }
-      );
-    }
-
-    return Booking.findById(bookingToCancel._id)
-      .populate("calendarEventId")
-      .populate("invoiceId")
-      .populate("paymentId")
-      .populate("roomId")
-      .session(session || null);
+  const data = await cancelBookingService(req.params.id, {
+    adminNote: req.body?.adminNote,
+    cancellationReason: req.body?.cancellationReason || "guest_cancelled",
+    cancelledBy: req.body?.cancelledBy || "guest"
   });
 
-  sendResponse(res, 200, "Booking cancelled successfully", booking);
+  sendResponse(res, 200, "Booking cancelled successfully", data.booking);
 });
 
 module.exports = {

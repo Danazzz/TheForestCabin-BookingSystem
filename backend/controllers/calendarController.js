@@ -93,7 +93,14 @@ const buildDateList = (startDate, endDate) => {
   return dates;
 };
 
-const statusOrder = ["success", "waiting_admin_approval", "pending_payment", "rejected", "cancelled"];
+const statusOrder = [
+  "success",
+  "waiting_admin_approval",
+  "pending_payment",
+  "waiting_availability_approval",
+  "rejected",
+  "cancelled"
+];
 
 const getAdminCalendarEvents = asyncHandler(async (req, res) => {
   const query = {};

@@ -11,6 +11,11 @@ const {
   rejectPayment: rejectPaymentService
 } = require("../services/adminApprovalService");
 const { checkRoomAvailability } = require("../services/availabilityService");
+const { cancelBooking: cancelBookingService } = require("../services/bookingCancellationService");
+const {
+  approveAvailability: approveAvailabilityService,
+  rejectAvailability: rejectAvailabilityService
+} = require("../services/availabilityReviewService");
 const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
 
 const attachLatestPayments = async (bookings) => {
@@ -35,7 +40,9 @@ const attachLatestPayments = async (bookings) => {
 };
 
 const getWaitingApprovalBookings = asyncHandler(async (req, res) => {
-  const bookings = await Booking.find({ bookingStatus: "waiting_admin_approval" })
+  const bookings = await Booking.find({
+    bookingStatus: { $in: ["waiting_availability_approval", "waiting_admin_approval"] }
+  })
     .populate("roomId")
     .populate("paymentId")
     .populate("calendarEventId")
@@ -140,6 +147,50 @@ const rejectPayment = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Payment rejected successfully", data);
 });
 
+const approveBookingAvailability = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+
+  if (req.body?.roomId) {
+    validateObjectId(req.body.roomId, "room id");
+  }
+
+  const data = await approveAvailabilityService(req.params.id, {
+    roomId: req.body?.roomId,
+    adminNote: req.body?.adminNote,
+    approvedBy: req.user?.id || req.body?.approvedBy
+  });
+
+  sendResponse(res, 200, "Booking availability approved successfully", data);
+});
+
+const rejectBookingAvailability = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+  const rejectionReason = req.body?.rejectionReason || "no_room_available";
+  validateEnum(rejectionReason, rejectionReasons, "rejectionReason");
+
+  const data = await rejectAvailabilityService(req.params.id, {
+    adminNote: req.body?.adminNote,
+    rejectionReason,
+    rejectedBy: req.user?.id || req.body?.rejectedBy
+  });
+
+  sendResponse(res, 200, "Booking availability rejected successfully", data);
+});
+
+const cancelAdminBooking = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+  const cancellationReason = req.body?.cancellationReason || "guest_cancelled";
+  validateEnum(cancellationReason, rejectionReasons, "cancellationReason");
+
+  const data = await cancelBookingService(req.params.id, {
+    adminNote: req.body?.adminNote,
+    cancellationReason,
+    cancelledBy: req.user?.id || req.body?.cancelledBy
+  });
+
+  sendResponse(res, 200, "Booking cancelled successfully", data);
+});
+
 const checkAdminAvailability = asyncHandler(async (req, res) => {
   requireFields(req.body, ["roomId", "checkIn", "checkOut"]);
   validateObjectId(req.body.roomId, "room id");
@@ -168,5 +219,8 @@ module.exports = {
   getAdminBookingDetail,
   approvePayment,
   rejectPayment,
+  approveBookingAvailability,
+  rejectBookingAvailability,
+  cancelAdminBooking,
   checkAdminAvailability
 };

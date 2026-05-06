@@ -112,8 +112,16 @@ const createPayment = asyncHandler(async (req, res) => {
     throw new AppError("Booking not found", 404);
   }
 
-  if (["success", "cancelled"].includes(booking.bookingStatus)) {
-    throw new AppError("Cannot create a new payment for this booking status", 409);
+  if (booking.bookingStatus === "waiting_availability_approval") {
+    throw new AppError("Booking must be approved by admin before payment can be created", 409);
+  }
+
+  if (booking.bookingStatus !== "pending_payment") {
+    throw new AppError("Payment can only be created for bookings pending payment", 409);
+  }
+
+  if (!booking.roomId) {
+    throw new AppError("Booking must have an assigned room before payment can be created", 409);
   }
 
   const activePayment = await Payment.findOne({
@@ -181,6 +189,16 @@ const uploadPaymentProof = asyncHandler(async (req, res) => {
 
   if (payment.paymentStatus === "paid") {
     throw new AppError("Payment is already paid", 409);
+  }
+
+  const currentBooking = await Booking.findById(payment.bookingId);
+
+  if (!currentBooking) {
+    throw new AppError("Booking not found for this payment", 404);
+  }
+
+  if (!["pending_payment", "waiting_admin_approval"].includes(currentBooking.bookingStatus)) {
+    throw new AppError("Payment proof cannot be uploaded for this booking status", 409);
   }
 
   const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
