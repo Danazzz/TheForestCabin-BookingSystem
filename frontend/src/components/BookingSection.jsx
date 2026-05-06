@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronLeft, FiChevronRight, FiCopy } from "react-icons/fi";
 import {
   bookingApi,
@@ -44,6 +44,15 @@ const monthFormatter = new Intl.DateTimeFormat("en-US", {
   month: "long",
   year: "numeric",
   timeZone: "UTC",
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Asia/Makassar",
 });
 
 const calendarWeekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -169,6 +178,7 @@ const formatRoomType = (roomType) =>
     .join(" ");
 
 const getBookingStatusLabel = (status) => bookingStatusLabels[status] || status || "-";
+const formatDateTime = (value) => (value ? `${dateTimeFormatter.format(new Date(value))} WITA` : "-");
 
 const getPaymentOptionSummary = (paymentOption) => {
   if (!paymentOption) {
@@ -257,6 +267,7 @@ const getInitialBookingCode = () => {
 };
 
 export default function BookingSection({ highlight }) {
+  const autoLoadedStatusRef = useRef(false);
   const [form, setForm] = useState({
     guestName: "",
     guestEmail: "",
@@ -577,6 +588,66 @@ export default function BookingSection({ highlight }) {
       setRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    let ignore = false;
+    const initialBookingCode = getInitialBookingCode();
+
+    if (!initialBookingCode || autoLoadedStatusRef.current) {
+      return () => {
+        ignore = true;
+      };
+    }
+
+    autoLoadedStatusRef.current = true;
+    setRefreshing(true);
+    setError("");
+
+    const loadInitialStatus = async () => {
+      try {
+        const bookingResponse = await bookingApi.getByCode(initialBookingCode);
+        const booking = bookingResponse.data;
+        const paymentResponse = await paymentApi.getByBooking(booking._id);
+
+        if (ignore) {
+          return;
+        }
+
+        setBookingResult({
+          booking,
+          payments: paymentResponse.data,
+          payment: paymentResponse.data?.[0] || null,
+          providerPayload: null,
+        });
+
+        try {
+          const invoiceResponse = await invoiceApi.getByBooking(booking._id);
+
+          if (!ignore) {
+            setInvoice(invoiceResponse.data);
+          }
+        } catch (invoiceError) {
+          if (!ignore && invoiceError.status !== 404) {
+            setError(normalizeError(invoiceError));
+          }
+        }
+      } catch (statusError) {
+        if (!ignore) {
+          setError(normalizeError(statusError));
+        }
+      } finally {
+        if (!ignore) {
+          setRefreshing(false);
+        }
+      }
+    };
+
+    loadInitialStatus();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const handleCheckAvailability = async () => {
     setError("");
@@ -1096,6 +1167,11 @@ export default function BookingSection({ highlight }) {
           ) : null}
           {bookingResult?.booking?.bookingStatus === "pending_payment" && !latestPayment ? (
             <>
+              {bookingResult.booking.paymentDueAt ? (
+                <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  Please complete payment before {formatDateTime(bookingResult.booking.paymentDueAt)}.
+                </p>
+              ) : null}
               {paymentOptionsLoading ? (
                 <p className="mt-3 text-sm text-gray-500">Loading payment methods...</p>
               ) : null}
@@ -1276,6 +1352,12 @@ export default function BookingSection({ highlight }) {
                 <span className="font-semibold text-forest">Payment status:</span>{" "}
                 {latestPayment?.paymentStatus || bookingResult.booking.paymentStatus}
               </p>
+              {bookingResult.booking.paymentDueAt ? (
+                <p>
+                  <span className="font-semibold text-forest">Payment deadline:</span>{" "}
+                  {formatDateTime(bookingResult.booking.paymentDueAt)}
+                </p>
+              ) : null}
               <p>
                 <span className="font-semibold text-forest">Method:</span>{" "}
                 {paymentMethodLabels[latestPayment?.paymentMethod] || "-"}

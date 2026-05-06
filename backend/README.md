@@ -138,7 +138,8 @@ Content-Type: application/json
 Guest booking requests now start as `waiting_availability_approval`. The guest
 does not create a payment yet. Admin must approve availability first; once
 approved, the booking becomes `pending_payment` and the guest can create payment
-instructions from the booking status page.
+instructions from the booking status page. A payment deadline is set from
+`PAYMENT_DEADLINE_HOURS` and defaults to 24 hours.
 
 ```json
 {
@@ -218,6 +219,7 @@ GET /api/admin/bookings/:id
 PATCH /api/admin/bookings/:id/availability/approve
 PATCH /api/admin/bookings/:id/availability/reject
 PATCH /api/admin/bookings/:id/cancel
+POST /api/admin/bookings/:id/payment-reminder
 ```
 
 Availability review:
@@ -251,6 +253,9 @@ Content-Type: application/json
 
 Availability approval and rejection both attempt to email the guest when SMTP is
 configured.
+
+Payment reminders can be sent for bookings with `pending_payment` status. The
+email points guests back to the frontend status page through `USER_FRONTEND_URL`.
 
 Create a manual admin booking:
 

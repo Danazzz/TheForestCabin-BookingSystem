@@ -16,6 +16,7 @@ const {
   approveAvailability: approveAvailabilityService,
   rejectAvailability: rejectAvailabilityService
 } = require("../services/availabilityReviewService");
+const { sendPaymentReminderEmail } = require("../services/emailService");
 const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
 
 const attachLatestPayments = async (bookings) => {
@@ -191,6 +192,27 @@ const cancelAdminBooking = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Booking cancelled successfully", data);
 });
 
+const sendPaymentReminder = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+  const booking = await Booking.findById(req.params.id);
+
+  if (!booking) {
+    throw new AppError("Booking not found", 404);
+  }
+
+  if (booking.bookingStatus !== "pending_payment") {
+    throw new AppError("Payment reminders can only be sent for pending payment bookings", 409);
+  }
+
+  if (booking.paymentDueAt && new Date(booking.paymentDueAt) < new Date()) {
+    throw new AppError("Payment deadline has passed. Cancel or update this booking manually.", 409);
+  }
+
+  const result = await sendPaymentReminderEmail(booking._id);
+
+  sendResponse(res, 200, "Payment reminder processed", result);
+});
+
 const checkAdminAvailability = asyncHandler(async (req, res) => {
   requireFields(req.body, ["roomId", "checkIn", "checkOut"]);
   validateObjectId(req.body.roomId, "room id");
@@ -222,5 +244,6 @@ module.exports = {
   approveBookingAvailability,
   rejectBookingAvailability,
   cancelAdminBooking,
+  sendPaymentReminder,
   checkAdminAvailability
 };

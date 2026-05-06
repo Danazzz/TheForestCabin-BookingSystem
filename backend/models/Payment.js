@@ -103,6 +103,11 @@ const paymentSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: true
+    },
     transactionReference: {
       type: String,
       trim: true,

@@ -23,6 +23,18 @@ const formatDate = (value) =>
       }).format(new Date(value))
     : "-";
 
+const formatDateTime = (value) =>
+  value
+    ? new Intl.DateTimeFormat("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Makassar"
+      }).format(new Date(value))
+    : "-";
+
 const escapeHtml = (value) =>
   String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -57,7 +69,7 @@ const buildInvoiceUrl = (bookingCode, settings) => {
 
   const baseUrl = process.env.USER_FRONTEND_URL.replace(/\/$/, "");
 
-  return `${baseUrl}/?bookingCode=${encodeURIComponent(bookingCode || "")}`;
+  return `${baseUrl}/?bookingCode=${encodeURIComponent(bookingCode || "")}#booking`;
 };
 
 const buildBookingStatusUrl = (bookingCode) => {
@@ -311,6 +323,18 @@ const buildBookingStatusEmailHtml = ({ booking, settings, title, message, button
               <td style="padding:6px 0;color:#6b7280;">Stay dates</td>
               <td style="padding:6px 0;text-align:right;">${formatDate(booking.checkIn)} - ${formatDate(booking.checkOut)}</td>
             </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Total amount</td>
+              <td style="padding:6px 0;text-align:right;font-weight:bold;color:${escapeHtml(primaryColor)};">${currencyFormatter.format(booking.totalAmount || 0)}</td>
+            </tr>
+            ${
+              booking.paymentDueAt
+                ? `<tr>
+                    <td style="padding:6px 0;color:#6b7280;">Payment deadline</td>
+                    <td style="padding:6px 0;text-align:right;font-weight:bold;">${formatDateTime(booking.paymentDueAt)} WITA</td>
+                  </tr>`
+                : ""
+            }
           </table>
           ${
             bookingUrl
@@ -368,7 +392,7 @@ const sendAvailabilityApprovedEmail = (bookingId) =>
     subject: "{{businessName}} booking request approved",
     title: "Booking Request Approved",
     message:
-      "Good news, your requested dates are available. Please continue with the payment instructions to secure your booking.",
+      "Good news, your requested dates are available. Please continue to the booking page, choose a payment method, and upload your payment proof before the deadline.",
     buttonLabel: "Continue Payment"
   });
 
@@ -382,8 +406,19 @@ const sendNoRoomAvailableEmail = (bookingId) =>
     buttonLabel: "Check Booking Status"
   });
 
+const sendPaymentReminderEmail = (bookingId) =>
+  sendBookingStatusEmail({
+    bookingId,
+    subject: "{{businessName}} payment reminder",
+    title: "Payment Reminder",
+    message:
+      "This is a reminder to complete payment for your approved booking. Please continue to the booking page, choose your preferred payment method, and upload your payment proof before the deadline.",
+    buttonLabel: "Continue Payment"
+  });
+
 module.exports = {
   sendInvoiceEmail,
   sendAvailabilityApprovedEmail,
-  sendNoRoomAvailableEmail
+  sendNoRoomAvailableEmail,
+  sendPaymentReminderEmail
 };

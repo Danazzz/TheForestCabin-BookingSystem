@@ -130,6 +130,11 @@ const bookingSchema = new mongoose.Schema(
       default: "unpaid",
       index: true
     },
+    paymentDueAt: {
+      type: Date,
+      default: null,
+      index: true
+    },
     source: {
       type: String,
       enum: bookingSources,

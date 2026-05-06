@@ -58,8 +58,21 @@ const buildManualProviderPayload = (booking, paymentOption) => {
     transactionReference: buildReference(snapshot.paymentMethod, booking._id),
     paymentInstructions,
     paymentOption: snapshot,
-    expiresAt: null
+    expiresAt: booking.paymentDueAt || null
   };
+};
+
+const assertPaymentWindowOpen = (booking) => {
+  if (!booking.paymentDueAt) {
+    return;
+  }
+
+  if (new Date(booking.paymentDueAt) < new Date()) {
+    throw new AppError(
+      "Payment deadline has passed. Please contact admin to continue this booking.",
+      409
+    );
+  }
 };
 
 const findActivePaymentOption = async ({ paymentMethod, paymentOptionId }) => {
@@ -124,6 +137,8 @@ const createPayment = asyncHandler(async (req, res) => {
     throw new AppError("Booking must have an assigned room before payment can be created", 409);
   }
 
+  assertPaymentWindowOpen(booking);
+
   const activePayment = await Payment.findOne({
     bookingId: booking._id,
     paymentStatus: { $in: ["pending", "paid"] }
@@ -163,6 +178,7 @@ const createPayment = asyncHandler(async (req, res) => {
     paymentOptionSnapshot: providerPayload.paymentOption,
     amount: booking.totalAmount,
     paymentStatus: "pending",
+    expiresAt: booking.paymentDueAt || null,
     transactionReference: providerPayload.transactionReference
   });
 
@@ -200,6 +216,8 @@ const uploadPaymentProof = asyncHandler(async (req, res) => {
   if (!["pending_payment", "waiting_admin_approval"].includes(currentBooking.bookingStatus)) {
     throw new AppError("Payment proof cannot be uploaded for this booking status", 409);
   }
+
+  assertPaymentWindowOpen(currentBooking);
 
   const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
   const proofPath = `${baseUrl}/uploads/payment-proofs/${req.file.filename}`;

@@ -13,6 +13,18 @@ const {
 } = require("./emailService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
+const DEFAULT_PAYMENT_DEADLINE_HOURS = 24;
+
+const getPaymentDeadline = () => {
+  const configuredHours = Number(
+    process.env.PAYMENT_DEADLINE_HOURS || DEFAULT_PAYMENT_DEADLINE_HOURS
+  );
+  const hours = Number.isFinite(configuredHours) && configuredHours > 0
+    ? configuredHours
+    : DEFAULT_PAYMENT_DEADLINE_HOURS;
+
+  return new Date(Date.now() + hours * 60 * 60 * 1000);
+};
 
 const getAvailabilityReviewPayload = async (bookingId, { session } = {}) => {
   const booking = await Booking.findById(bookingId)
@@ -106,6 +118,7 @@ const approveAvailability = async (bookingId, { roomId, adminNote, approvedBy } 
     booking.roomType = room.roomType;
     booking.bookingStatus = "pending_payment";
     booking.paymentStatus = "unpaid";
+    booking.paymentDueAt = getPaymentDeadline();
     booking.availabilityApprovedAt = new Date();
     booking.availabilityApprovedBy = approvedBy || "system-admin";
     booking.rejectionReason = null;
@@ -139,6 +152,7 @@ const rejectAvailability = async (
 
     booking.bookingStatus = "rejected";
     booking.paymentStatus = "unpaid";
+    booking.paymentDueAt = null;
     booking.rejectionReason = rejectionReason;
     booking.adminNote = adminNote || rejectionReason;
     booking.rejectedAt = new Date();
