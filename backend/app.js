@@ -8,6 +8,7 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const calendarRoutes = require("./routes/calendarRoutes");
+const channelRoutes = require("./routes/channelRoutes");
 const roomRoutes = require("./routes/roomRoutes");
 const promoRoutes = require("./routes/promoRoutes");
 const galleryRoutes = require("./routes/galleryRoutes");
@@ -45,6 +46,7 @@ app.use("/api/gallery", galleryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/calendar", calendarRoutes);
+app.use("/api/channels", channelRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

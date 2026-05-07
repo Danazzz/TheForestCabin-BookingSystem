@@ -82,6 +82,28 @@ const buildBookingStatusUrl = (bookingCode) => {
   return `${baseUrl}/?bookingCode=${encodeURIComponent(bookingCode || "")}`;
 };
 
+const buildAdminBookingUrl = (bookingId) => {
+  if (!process.env.ADMIN_FRONTEND_URL || !bookingId) {
+    return "";
+  }
+
+  const baseUrl = process.env.ADMIN_FRONTEND_URL.replace(/\/$/, "");
+
+  return `${baseUrl}/bookings/${encodeURIComponent(String(bookingId))}`;
+};
+
+const getAdminNotificationRecipients = () => {
+  const rawRecipients =
+    process.env.ADMIN_NOTIFICATION_EMAILS ||
+    process.env.ADMIN_NOTIFICATION_EMAIL ||
+    "";
+
+  return rawRecipients
+    .split(",")
+    .map((recipient) => recipient.trim())
+    .filter(Boolean);
+};
+
 const buildTemplateVariables = (invoice, settings) => {
   const booking = invoice.bookingId || {};
 
@@ -284,6 +306,115 @@ const sendInvoiceEmail = async (invoiceId) => {
   }
 };
 
+const buildAdminBookingRequestEmailHtml = (booking, settings) => {
+  const primaryColor = settings.primaryColor || "#174f37";
+  const accentColor = settings.accentColor || "#f6f3ea";
+  const adminUrl = buildAdminBookingUrl(booking._id);
+  const roomLabel = booking.roomId
+    ? `${booking.roomId.roomNumber} · ${booking.roomId.name || booking.roomType}`
+    : booking.roomType;
+
+  return `
+    <div style="margin:0;background:${escapeHtml(accentColor)};padding:24px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+        <div style="background:${escapeHtml(primaryColor)};color:#ffffff;padding:24px;">
+          <p style="margin:0;font-size:14px;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(settings.businessName)}</p>
+          <h1 style="margin:8px 0 0;font-size:24px;">New Booking Request</h1>
+        </div>
+        <div style="padding:24px;">
+          <p style="margin:0 0 16px;">A guest submitted a new booking request and is waiting for availability review.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Booking code</td>
+              <td style="padding:6px 0;text-align:right;font-weight:bold;">${escapeHtml(booking.bookingCode)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Guest</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(booking.guestName)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Guest email</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(booking.guestEmail || "-")}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Guest phone</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(booking.guestPhone)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Room request</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(roomLabel)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Stay dates</td>
+              <td style="padding:6px 0;text-align:right;">${formatDate(booking.checkIn)} - ${formatDate(booking.checkOut)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Guests</td>
+              <td style="padding:6px 0;text-align:right;">${escapeHtml(`${booking.numberOfGuests || 0} adults · ${booking.numberOfChildren || 0} children`)}</td>
+            </tr>
+            ${
+              booking.promoName
+                ? `<tr>
+                    <td style="padding:6px 0;color:#6b7280;">Promo</td>
+                    <td style="padding:6px 0;text-align:right;">${escapeHtml(booking.promoName)}</td>
+                  </tr>`
+                : ""
+            }
+            <tr>
+              <td style="padding:6px 0;color:#6b7280;">Total amount</td>
+              <td style="padding:6px 0;text-align:right;font-weight:bold;color:${escapeHtml(primaryColor)};">${currencyFormatter.format(booking.totalAmount || 0)}</td>
+            </tr>
+          </table>
+          ${
+            adminUrl
+              ? `<p style="margin-top:24px;"><a href="${adminUrl}" style="display:inline-block;background:${escapeHtml(primaryColor)};color:#ffffff;padding:12px 16px;border-radius:6px;text-decoration:none;font-weight:bold;">Review booking</a></p>`
+              : ""
+          }
+          <p style="margin-top:20px;color:#6b7280;font-size:12px;">This notification is for admin review only. The guest has not been asked to pay yet.</p>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+const sendAdminBookingRequestEmail = async (bookingId) => {
+  const recipients = getAdminNotificationRecipients();
+
+  if (recipients.length === 0) {
+    return { sent: false, reason: "admin_recipients_not_configured" };
+  }
+
+  const booking = await Booking.findById(bookingId).populate("roomId");
+
+  if (!booking) {
+    return { sent: false, reason: "booking_not_found" };
+  }
+
+  if (!isSmtpConfigured()) {
+    return { sent: false, reason: "smtp_not_configured" };
+  }
+
+  try {
+    const settings = buildInvoiceSettingsSnapshot(await getInvoiceSettings());
+    const transport = buildTransport();
+
+    await transport.sendMail({
+      from: process.env.SMTP_FROM,
+      to: recipients,
+      subject: `New Booking Request - ${booking.bookingCode}`,
+      html: buildAdminBookingRequestEmailHtml(booking, settings)
+    });
+
+    return { sent: true, recipients };
+  } catch (error) {
+    return {
+      sent: false,
+      reason: "send_failed",
+      error: error.message || "Failed to send admin booking notification"
+    };
+  }
+};
+
 const buildBookingStatusEmailHtml = ({ booking, settings, title, message, buttonLabel }) => {
   const primaryColor = settings.primaryColor || "#174f37";
   const accentColor = settings.accentColor || "#f6f3ea";
@@ -480,6 +611,7 @@ const sendPaymentReminderEmail = (bookingId) =>
 
 module.exports = {
   sendInvoiceEmail,
+  sendAdminBookingRequestEmail,
   sendAvailabilityApprovedEmail,
   sendNoRoomAvailableEmail,
   sendPaymentReminderEmail

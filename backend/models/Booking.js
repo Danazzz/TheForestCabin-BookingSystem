@@ -16,7 +16,6 @@ const paymentStatuses = [
   "rejected",
   "refund_required"
 ];
-const bookingSources = ["direct", "manual_admin"];
 const rejectionReasons = [
   "no_room_available",
   "invalid_payment_proof",
@@ -179,9 +178,14 @@ const bookingSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: bookingSources,
       default: "direct",
+      trim: true,
       index: true
+    },
+    sourceName: {
+      type: String,
+      trim: true,
+      default: ""
     },
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -277,7 +281,6 @@ bookingSchema.pre("validate", function validateBookingDates(next) {
 module.exports = mongoose.model("Booking", bookingSchema);
 module.exports.bookingStatuses = bookingStatuses;
 module.exports.paymentStatuses = paymentStatuses;
-module.exports.bookingSources = bookingSources;
 module.exports.rejectionReasons = rejectionReasons;
 module.exports.bookingEmailDeliveryStatuses = bookingEmailDeliveryStatuses;
 module.exports.bookingEmailDeliveryTypes = bookingEmailDeliveryTypes;

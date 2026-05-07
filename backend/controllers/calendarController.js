@@ -169,6 +169,8 @@ const getCalendarGrid = asyncHandler(async (req, res) => {
       checkOut: toDateOnly(booking.checkOut),
       status: booking.bookingStatus,
       paymentStatus: booking.paymentStatus,
+      source: booking.source,
+      sourceName: booking.sourceName || "",
       startDate: toDateOnly(booking.checkIn),
       endDate: toDateOnly(booking.checkOut)
     });

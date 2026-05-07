@@ -11,12 +11,13 @@ const {
   validateObjectId,
   validatePositiveNumber
 } = require("../utils/validators");
-const { bookingStatuses, paymentStatuses, bookingSources } = require("../models/Booking");
+const { bookingStatuses, paymentStatuses } = require("../models/Booking");
 const { cancelBooking: cancelBookingService } = require("../services/bookingCancellationService");
 const {
   assertRoomExistsAndActive,
   getRoomsByType
 } = require("../services/availabilityService");
+const { sendAdminBookingRequestEmail } = require("../services/emailService");
 
 const getNights = (checkIn, checkOut) => {
   const milliseconds = new Date(checkOut).getTime() - new Date(checkIn).getTime();
@@ -120,7 +121,6 @@ const createBooking = asyncHandler(async (req, res) => {
     : null;
   const source = "direct";
   const requestedRoomType = Room.normalizeRoomType(req.body.roomType);
-  validateEnum(source, bookingSources, "source");
 
   if (!requestedRoomType) {
     throw new AppError("roomType is required", 400);
@@ -187,11 +187,14 @@ const createBooking = asyncHandler(async (req, res) => {
     promoAdjustmentType: promo?.adjustmentType || "",
     promoAdjustmentValue: promo?.adjustmentValue || 0,
     source,
+    sourceName: "Website direct",
     bookingStatus: "waiting_availability_approval",
     paymentStatus: "unpaid"
   });
 
   const createdBooking = await Booking.findById(booking._id).populate("roomId");
+
+  sendAdminBookingRequestEmail(createdBooking._id).catch(() => null);
 
   sendResponse(res, 201, "Booking request submitted successfully", createdBooking);
 });
@@ -210,7 +213,6 @@ const getBookings = asyncHandler(async (req, res) => {
   }
 
   if (req.query.source) {
-    validateEnum(req.query.source, bookingSources, "source");
     filters.source = req.query.source;
   }
 

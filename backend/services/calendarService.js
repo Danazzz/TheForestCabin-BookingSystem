@@ -69,7 +69,8 @@ const createCalendarEventForBooking = async (
         endDate: parseDate(booking.checkOut, "checkOut"),
         guestName: booking.guestName,
         status: "confirmed",
-        source: booking.source
+        source: booking.source,
+        sourceName: booking.sourceName || ""
       }
     ],
     sessionOption(session)

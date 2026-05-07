@@ -1,4 +1,5 @@
 const Booking = require("../models/Booking");
+const Channel = require("../models/Channel");
 const Payment = require("../models/Payment");
 const Promo = require("../models/Promo");
 const Room = require("../models/Room");
@@ -154,6 +155,66 @@ const createManualPayment = async ({ booking, paymentStatus, adminNote, session 
   return payment;
 };
 
+const resolveManualBookingSource = async (payload, { session } = {}) => {
+  const rawSource = String(payload.source || "").trim();
+  const rawSourceName = String(payload.sourceName || "").trim();
+
+  if (!rawSource && !rawSourceName) {
+    return {
+      source: "manual_admin",
+      sourceName: "Manual admin"
+    };
+  }
+
+  const normalizedSource = rawSource ? Channel.normalizeChannelKey(rawSource) : "";
+  const channelClauses = [
+    ...(normalizedSource ? [{ key: normalizedSource }] : []),
+    ...(rawSourceName ? [{ name: rawSourceName }] : [])
+  ];
+
+  if (rawSource && !normalizedSource) {
+    throw new AppError("source must contain at least one letter or number", 400);
+  }
+
+  const channelQuery = payload.channelId
+    ? { _id: payload.channelId, isActive: true }
+    : {
+        isActive: true,
+        $or: channelClauses
+      };
+
+  if (payload.channelId) {
+    validateObjectId(payload.channelId, "channel id");
+  }
+
+  const channel = await Channel.findOne(channelQuery).session(session || null);
+
+  if (channel) {
+    return {
+      source: channel.key,
+      sourceName: channel.name
+    };
+  }
+
+  if (normalizedSource) {
+    return {
+      source: normalizedSource,
+      sourceName: rawSourceName || rawSource
+    };
+  }
+
+  const fallbackSource = Channel.normalizeChannelKey(rawSourceName);
+
+  if (!fallbackSource) {
+    throw new AppError("source must contain at least one letter or number", 400);
+  }
+
+  return {
+    source: fallbackSource,
+    sourceName: rawSourceName
+  };
+};
+
 const createManualBooking = async (payload, { approvedBy } = {}) => {
   let invoiceIdToEmail = null;
 
@@ -204,6 +265,7 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
     const totalAmount = payload.overrideTotal
       ? validatePositiveNumber(payload.totalAmount ?? calculatedTotal, "totalAmount", true)
       : calculatedTotal;
+    const source = await resolveManualBookingSource(payload, { session });
 
     const [booking] = await Booking.create(
       [
@@ -223,7 +285,8 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
           promoName: promo?.name || "",
           promoAdjustmentType: promo?.adjustmentType || "",
           promoAdjustmentValue: promo?.adjustmentValue || 0,
-          source: "manual_admin",
+          source: source.source,
+          sourceName: source.sourceName,
           bookingStatus,
           paymentStatus,
           adminNote: payload.adminNote || null,

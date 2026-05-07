@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const calendarStatuses = ["confirmed", "cancelled"];
-const calendarSources = ["direct", "manual_admin"];
 
 const calendarEventSchema = new mongoose.Schema(
   {
@@ -61,9 +60,14 @@ const calendarEventSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: calendarSources,
       default: "direct",
+      trim: true,
       index: true
+    },
+    sourceName: {
+      type: String,
+      trim: true,
+      default: ""
     }
   },
   { timestamps: true }
@@ -83,4 +87,3 @@ calendarEventSchema.pre("validate", function validateCalendarDates(next) {
 
 module.exports = mongoose.model("CalendarEvent", calendarEventSchema);
 module.exports.calendarStatuses = calendarStatuses;
-module.exports.calendarSources = calendarSources;

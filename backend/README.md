@@ -36,6 +36,8 @@ CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,ht
 UPLOAD_BASE_URL=http://localhost:5001
 MAX_UPLOAD_SIZE_MB=5
 USER_FRONTEND_URL=http://localhost:5173
+ADMIN_FRONTEND_URL=http://localhost:5174
+ADMIN_NOTIFICATION_EMAILS=
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -47,6 +49,8 @@ SMTP_FROM="The Forest Cabin <reservations@theforestcabin.local>"
 Payment proof upload currently uses Multer local storage at `/uploads/payment-proofs`. Set `UPLOAD_BASE_URL` to the deployed backend URL in production, or replace the upload middleware with Cloudinary storage before deploying to non-persistent hosts.
 
 Invoice email uses SMTP through Nodemailer. If SMTP is not configured, bookings can still be approved and invoices are still generated; the invoice email status becomes `not_configured`.
+
+Set `ADMIN_NOTIFICATION_EMAILS` to one or more comma-separated admin email addresses to notify admins when a guest submits a new booking request. `ADMIN_FRONTEND_URL` is used to build the admin booking detail link in that email.
 
 ## Rooms
 
@@ -256,6 +260,10 @@ Content-Type: application/json
 Availability approval and rejection both attempt to email the guest when SMTP is
 configured.
 
+New guest booking requests attempt to notify the admin emails configured in
+`ADMIN_NOTIFICATION_EMAILS`. This notification is non-blocking: the booking is
+still created even if admin email is not configured or the send attempt fails.
+
 Payment reminders can be sent for bookings with `pending_payment` status. The
 email points guests back to the frontend status page through `USER_FRONTEND_URL`.
 
@@ -298,6 +306,8 @@ Content-Type: application/json
   "checkOut": "2026-05-12",
   "numberOfGuests": 2,
   "numberOfChildren": 0,
+  "source": "whatsapp",
+  "sourceName": "WhatsApp",
   "bookingStatus": "success",
   "paymentStatus": "paid",
   "overrideTotal": false,
@@ -305,7 +315,25 @@ Content-Type: application/json
 }
 ```
 
-Manual bookings use `source: manual_admin`. When created as `success` with `paid`, the backend checks availability, creates the calendar event, generates the invoice, and sends the invoice email if invoice settings and SMTP allow it.
+Manual booking sources are dynamic. Create source options through `/api/channels`, then send either the channel `key` as `source` or `channelId` when creating a manual booking. If no source is sent, the backend falls back to `manual_admin` for backwards compatibility. When created as `success` with `paid`, the backend checks availability, creates the calendar event, generates the invoice, and sends the invoice email if invoice settings and SMTP allow it.
+
+Booking source channels:
+
+```http
+GET /api/channels
+GET /api/channels?includeInactive=true
+POST /api/channels
+PATCH /api/channels/:id
+DELETE /api/channels/:id
+```
+
+```json
+{
+  "name": "Traveloka",
+  "type": "OTA",
+  "isActive": true
+}
+```
 
 Manual admin bookings are intentionally simpler than website bookings:
 
