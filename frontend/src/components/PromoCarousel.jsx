@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { promoApi } from "../services/api";
+import { sanitizeMediaUrl } from "../utils/security";
 
 const fallbackPromos = [
   {
@@ -29,7 +30,10 @@ export default function PromoCarousel() {
     const loadPromos = async () => {
       try {
         const response = await promoApi.listActive();
-        const activePromos = response.data || [];
+        const activePromos = (response.data || []).map((promo) => ({
+          ...promo,
+          imageUrl: sanitizeMediaUrl(promo.imageUrl),
+        }));
 
         if (!ignore && activePromos.length > 0) {
           setPromos(activePromos);
@@ -83,7 +87,7 @@ export default function PromoCarousel() {
             >
               {/* IMAGE */}
               <img
-                src={promo.imageUrl || "/gallery/IMG_0743.jpg"}
+                src={sanitizeMediaUrl(promo.imageUrl) || "/gallery/IMG_0743.jpg"}
                 alt={promo.altText || promo.title}
                 className="w-full h-full object-cover"
               />

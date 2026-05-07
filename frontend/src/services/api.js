@@ -1,3 +1,5 @@
+import { encodePathSegment } from "../utils/security";
+
 const API_ROOT = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const API_BASE_URL = API_ROOT.endsWith("/api") ? API_ROOT : `${API_ROOT}/api`;
 
@@ -34,8 +36,8 @@ export const bookingApi = {
       body: JSON.stringify(payload),
     }),
 
-  getBooking: (bookingId) => apiRequest(`/bookings/${bookingId}`),
-  getByCode: (bookingCode) => apiRequest(`/bookings/code/${bookingCode}`),
+  getBooking: (bookingId) => apiRequest(`/bookings/${encodePathSegment(bookingId)}`),
+  getByCode: (bookingCode) => apiRequest(`/bookings/code/${encodePathSegment(bookingCode)}`),
 };
 
 export const roomApi = {
@@ -59,7 +61,7 @@ export const roomApi = {
 
 export const paymentApi = {
   createPayment: (bookingId, payload) =>
-    apiRequest(`/payments/${bookingId}/create`, {
+    apiRequest(`/payments/${encodePathSegment(bookingId)}/create`, {
       method: "POST",
       body: JSON.stringify(
         typeof payload === "string" ? { paymentMethod: payload } : payload
@@ -70,7 +72,7 @@ export const paymentApi = {
     const formData = new FormData();
     formData.append("proofImage", file);
 
-    const response = await fetch(`${API_BASE_URL}/payments/${paymentId}/upload-proof`, {
+    const response = await fetch(`${API_BASE_URL}/payments/${encodePathSegment(paymentId)}/upload-proof`, {
       method: "POST",
       body: formData,
     });
@@ -78,7 +80,7 @@ export const paymentApi = {
     return parseResponse(response);
   },
 
-  getByBooking: (bookingId) => apiRequest(`/payments/booking/${bookingId}`),
+  getByBooking: (bookingId) => apiRequest(`/payments/booking/${encodePathSegment(bookingId)}`),
 };
 
 export const paymentOptionApi = {
@@ -86,7 +88,7 @@ export const paymentOptionApi = {
 };
 
 export const invoiceApi = {
-  getByBooking: (bookingId) => apiRequest(`/invoices/booking/${bookingId}`),
+  getByBooking: (bookingId) => apiRequest(`/invoices/booking/${encodePathSegment(bookingId)}`),
 };
 
 export const calendarApi = {

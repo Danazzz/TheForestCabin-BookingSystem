@@ -8,6 +8,7 @@ import {
   promoApi,
   roomApi,
 } from "../services/api";
+import { sanitizeMediaUrl, validatePaymentProofFile } from "../utils/security";
 
 const PROPERTY_ID = "forest-cabin-main";
 const WHATSAPP_NUMBER = "6281511671818";
@@ -249,7 +250,7 @@ const getPaymentDetails = (paymentData) => {
     accountNumber: paymentData.virtualAccountNumber || paymentData.accountNumber,
     merchantName: paymentData.merchantName,
     qrisCode: paymentData.qrisCode || paymentData.qrString,
-    imageUrl: paymentData.qrImageUrl || paymentData.imageUrl,
+    imageUrl: sanitizeMediaUrl(paymentData.qrImageUrl || paymentData.imageUrl),
     instructions: paymentData.instructions,
   };
 };
@@ -499,6 +500,21 @@ export default function BookingSection({ highlight }) {
     if (["roomType", "checkIn", "checkOut"].includes(name)) {
       setAvailabilityResult(null);
     }
+  };
+
+  const handleProofFileChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    const validationError = file ? validatePaymentProofFile(file) : "";
+
+    if (validationError) {
+      setProofImage(null);
+      setError(validationError);
+      event.target.value = "";
+      return;
+    }
+
+    setError("");
+    setProofImage(file);
   };
 
   const handleCalendarDateClick = (day) => {
@@ -806,8 +822,10 @@ export default function BookingSection({ highlight }) {
       return;
     }
 
-    if (!proofImage) {
-      setError("Please choose a payment proof image first.");
+    const proofValidationError = validatePaymentProofFile(proofImage);
+
+    if (proofValidationError) {
+      setError(proofValidationError);
       return;
     }
 
@@ -844,6 +862,7 @@ export default function BookingSection({ highlight }) {
   const paymentDetails = getPaymentDetails(paymentInstructions);
   const paymentImageUrl = paymentDetails?.imageUrl;
   const paymentAccountNumber = paymentDetails?.accountNumber;
+  const proofImageUrl = sanitizeMediaUrl(latestPayment?.proofImageUrl);
   const canCreatePayment =
     bookingResult?.booking?.bookingStatus === "pending_payment" &&
     !latestPayment &&
@@ -1015,6 +1034,8 @@ export default function BookingSection({ highlight }) {
             name="guestName"
             value={form.guestName}
             onChange={handleChange}
+            maxLength={120}
+            autoComplete="name"
             className="rounded border p-2"
             placeholder="Guest name"
           />
@@ -1024,6 +1045,8 @@ export default function BookingSection({ highlight }) {
             name="guestEmail"
             value={form.guestEmail}
             onChange={handleChange}
+            maxLength={160}
+            autoComplete="email"
             className="rounded border p-2"
             placeholder="Email"
           />
@@ -1033,6 +1056,8 @@ export default function BookingSection({ highlight }) {
             name="guestPhone"
             value={form.guestPhone}
             onChange={handleChange}
+            maxLength={40}
+            autoComplete="tel"
             className="rounded border p-2"
             placeholder="Phone"
           />
@@ -1465,10 +1490,10 @@ export default function BookingSection({ highlight }) {
               </div>
             ) : null}
 
-            {latestPayment?.proofImageUrl ? (
+            {proofImageUrl ? (
               <div className="mt-3 rounded border border-green-200 bg-green-50 p-3">
                 <p className="font-semibold text-forest">Payment proof uploaded</p>
-                <a href={latestPayment.proofImageUrl} target="_blank" rel="noreferrer" className="mt-2 block text-green-800 underline">
+                <a href={proofImageUrl} target="_blank" rel="noreferrer" className="mt-2 block text-green-800 underline">
                   View uploaded proof
                 </a>
               </div>
@@ -1479,11 +1504,11 @@ export default function BookingSection({ highlight }) {
                 <p className="font-semibold text-forest">Upload payment proof</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
                   <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={(event) => setProofImage(event.target.files?.[0] || null)}
-                    className="rounded border bg-white p-2 text-sm"
-                  />
+	                    type="file"
+	                    accept="image/jpeg,image/png,image/webp"
+	                    onChange={handleProofFileChange}
+	                    className="rounded border bg-white p-2 text-sm"
+	                  />
                   <button
                     type="button"
                     onClick={handleProofUpload}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AccommodationCard from "./AccommodationCard";
 import { accommodations } from "../data/accommodations";
 import { roomApi } from "../services/api";
+import { sanitizeMediaUrl } from "../utils/security";
 
 export default function AccommodationList() {
   const [activeIndex, setActiveIndex] = useState(null);
@@ -16,7 +17,7 @@ export default function AccommodationList() {
         const nextItems = (response.data || []).map((item) => ({
           id: item.roomType,
           name: item.label || item.roomType,
-          image: item.imageUrl || "/gallery/IMG_0748.jpg",
+          image: sanitizeMediaUrl(item.imageUrl) || "/gallery/IMG_0748.jpg",
           description: item.description,
           details: item.details || [],
           altText: item.altText,

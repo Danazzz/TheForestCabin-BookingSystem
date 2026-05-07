@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { galleryApi } from "../services/api";
+import { sanitizeMediaUrl } from "../utils/security";
 
 const fallbackImages = [
   {
@@ -31,7 +32,7 @@ export default function Gallery() {
         const response = await galleryApi.list();
         const nextImages = (response.data || []).map((item) => ({
           id: item._id,
-          imageUrl: item.imageUrl,
+          imageUrl: sanitizeMediaUrl(item.imageUrl),
           title: item.title,
           altText: item.altText,
         })).filter((item) => item.imageUrl);
@@ -82,7 +83,7 @@ export default function Gallery() {
           {images.map((image, index) => (
             <img
               key={image.id || index}
-              src={image.imageUrl}
+              src={sanitizeMediaUrl(image.imageUrl) || "/gallery/IMG_0743.jpg"}
               alt={image.altText || image.title || "Forest Cabin gallery"}
               className="w-full h-64 md:h-96 object-cover flex-shrink-0"
             />

@@ -1,15 +1,18 @@
+import { sanitizeMediaUrl } from "../utils/security";
+
 export default function AccommodationCard({
   item,
   isActive,
   onToggle,
 }) {
   const details = item.details || [];
+  const imageUrl = sanitizeMediaUrl(item.image) || "/gallery/IMG_0748.jpg";
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-md transition duration-300">
 
       <img
-        src={item.image}
+        src={imageUrl}
         alt={item.altText || item.name}
         className="h-44 md:h-48 w-full object-cover"
       />
