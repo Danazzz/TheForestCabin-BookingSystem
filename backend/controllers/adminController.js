@@ -23,6 +23,10 @@ const {
 } = require("../services/emailService");
 const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
 const { getDashboardSummary: getDashboardSummaryService } = require("../services/dashboardSummaryService");
+const {
+  buildBookingsOccupancyCsv,
+  buildInvoicesIncomeCsv
+} = require("../services/exportService");
 
 const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
 
@@ -335,8 +339,34 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
   sendResponse(res, 200, "Dashboard summary retrieved successfully", data);
 });
 
+const sendCsvDownload = (res, { filename, csv }) => {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.status(200).send(`\uFEFF${csv}`);
+};
+
+const exportBookingsOccupancy = asyncHandler(async (req, res) => {
+  const csvExport = await buildBookingsOccupancyCsv({
+    startDate: req.query.startDate,
+    endDate: req.query.endDate
+  });
+
+  sendCsvDownload(res, csvExport);
+});
+
+const exportInvoicesIncome = asyncHandler(async (req, res) => {
+  const csvExport = await buildInvoicesIncomeCsv({
+    startDate: req.query.startDate,
+    endDate: req.query.endDate
+  });
+
+  sendCsvDownload(res, csvExport);
+});
+
 module.exports = {
   getDashboardSummary,
+  exportBookingsOccupancy,
+  exportInvoicesIncome,
   getAdminBookings,
   createManualBooking,
   getWaitingApprovalBookings,

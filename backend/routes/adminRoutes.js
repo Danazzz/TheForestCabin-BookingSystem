@@ -13,7 +13,9 @@ const {
   cancelAdminBooking,
   sendPaymentReminder,
   resendBookingEmail,
-  checkAdminAvailability
+  checkAdminAvailability,
+  exportBookingsOccupancy,
+  exportInvoicesIncome
 } = require("../controllers/adminController");
 const {
   getAdminCalendarEvents,
@@ -48,6 +50,8 @@ const router = express.Router();
 router.use(protect, adminOnly);
 
 router.get("/dashboard/summary", getDashboardSummary);
+router.get("/exports/bookings-occupancy.csv", exportBookingsOccupancy);
+router.get("/exports/invoices-income.csv", exportInvoicesIncome);
 router.get("/bookings", getAdminBookings);
 router.post("/bookings/manual", createManualBooking);
 router.get("/bookings/waiting-approval", getWaitingApprovalBookings);

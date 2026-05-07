@@ -273,6 +273,8 @@ Admin routes require `Authorization: Bearer <token>`.
 POST /api/auth/admin/login
 GET /api/auth/admin/me
 GET /api/admin/dashboard/summary
+GET /api/admin/exports/bookings-occupancy.csv
+GET /api/admin/exports/invoices-income.csv
 GET /api/admin/bookings
 POST /api/admin/bookings/manual
 GET /api/admin/bookings/waiting-approval
@@ -294,6 +296,17 @@ GET /api/admin/dashboard/summary?startDate=2026-05-01&endDate=2026-05-31
 The `endDate` filter is inclusive. Occupancy uses proportional room-night
 overlap, so a confirmed booking that crosses month boundaries only contributes
 the nights inside the selected dashboard range.
+
+Admin CSV exports:
+
+```http
+GET /api/admin/exports/bookings-occupancy.csv?startDate=2026-05-01&endDate=2026-05-31
+GET /api/admin/exports/invoices-income.csv?startDate=2026-05-01&endDate=2026-05-31
+```
+
+`bookings-occupancy.csv` exports bookings that overlap the selected stay range,
+plus occupancy and source-income summaries. `invoices-income.csv` exports
+invoices issued inside the selected date range, plus paid income summaries.
 
 Availability review:
 
