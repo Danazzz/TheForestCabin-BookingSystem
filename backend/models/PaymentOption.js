@@ -51,6 +51,11 @@ const paymentOptionSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    imagePublicId: {
+      type: String,
+      trim: true,
+      default: ""
+    },
     instructions: {
       type: String,
       trim: true,

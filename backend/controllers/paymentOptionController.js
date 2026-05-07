@@ -28,13 +28,7 @@ const parseBoolean = (value, defaultValue = true) => {
 };
 
 const getUploadedImageUrl = (req) => {
-  if (!req.file) {
-    return "";
-  }
-
-  const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
-
-  return `${baseUrl}/uploads/site-content/${req.file.filename}`;
+  return req.uploadedFileUrl || "";
 };
 
 const buildPaymentOptionName = (paymentOption) => {
@@ -91,6 +85,10 @@ const normalizePayload = (req, { partial = false } = {}) => {
   const uploadedImageUrl = getUploadedImageUrl(req);
   if (uploadedImageUrl || body.imageUrl !== undefined) {
     payload.imageUrl = uploadedImageUrl || String(body.imageUrl || "").trim();
+  }
+
+  if (req.uploadedFilePublicId) {
+    payload.imagePublicId = req.uploadedFilePublicId;
   }
 
   if (body.sortOrder !== undefined) {

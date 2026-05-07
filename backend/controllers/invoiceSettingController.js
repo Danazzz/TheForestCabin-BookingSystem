@@ -20,13 +20,7 @@ const parseBoolean = (value, defaultValue = true) => {
 };
 
 const getUploadedLogoUrl = (req) => {
-  if (!req.file) {
-    return "";
-  }
-
-  const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
-
-  return `${baseUrl}/uploads/site-content/${req.file.filename}`;
+  return req.uploadedFileUrl || "";
 };
 
 const normalizeColor = (value, fieldName) => {
@@ -70,6 +64,10 @@ const normalizeSettingsPayload = (req) => {
   const uploadedLogoUrl = getUploadedLogoUrl(req);
   if (uploadedLogoUrl || body.logoUrl !== undefined) {
     payload.logoUrl = uploadedLogoUrl || String(body.logoUrl || "").trim();
+  }
+
+  if (req.uploadedFilePublicId) {
+    payload.logoPublicId = req.uploadedFilePublicId;
   }
 
   if (body.autoSendInvoiceEmail !== undefined) {

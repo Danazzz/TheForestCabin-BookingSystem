@@ -103,6 +103,11 @@ const paymentSchema = new mongoose.Schema(
       type: String,
       default: null
     },
+    proofImagePublicId: {
+      type: String,
+      trim: true,
+      default: ""
+    },
     expiresAt: {
       type: Date,
       default: null,

@@ -39,6 +39,11 @@ const invoiceSettingSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    logoPublicId: {
+      type: String,
+      trim: true,
+      default: ""
+    },
     invoicePrefix: {
       type: String,
       trim: true,

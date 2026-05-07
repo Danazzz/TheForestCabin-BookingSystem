@@ -3,15 +3,10 @@ const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
 const { requireFields, validateObjectId } = require("../utils/validators");
+const { deleteCloudinaryAsset } = require("../config/cloudinary");
 
 const getUploadedImageUrl = (req) => {
-  if (!req.file) {
-    return "";
-  }
-
-  const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
-
-  return `${baseUrl}/uploads/site-content/${req.file.filename}`;
+  return req.uploadedFileUrl || "";
 };
 
 const listGalleryImages = asyncHandler(async (req, res) => {
@@ -52,6 +47,7 @@ const createAdminGalleryImage = asyncHandler(async (req, res) => {
     type: "gallery",
     title: String(req.body.title || "").trim(),
     imageUrl,
+    imagePublicId: req.uploadedFilePublicId || "",
     altText: String(req.body.altText || "").trim(),
     sortOrder,
     isActive: true
@@ -70,6 +66,10 @@ const deleteAdminGalleryImage = asyncHandler(async (req, res) => {
 
   if (!image) {
     throw new AppError("Gallery image not found", 404);
+  }
+
+  if (image.imagePublicId) {
+    await deleteCloudinaryAsset(image.imagePublicId).catch(() => null);
   }
 
   sendResponse(res, 200, "Gallery image deleted successfully", image);

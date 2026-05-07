@@ -27,6 +27,11 @@ const contentItemSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    imagePublicId: {
+      type: String,
+      trim: true,
+      default: ""
+    },
     altText: {
       type: String,
       trim: true,

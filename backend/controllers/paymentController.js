@@ -219,10 +219,8 @@ const uploadPaymentProof = asyncHandler(async (req, res) => {
 
   assertPaymentWindowOpen(currentBooking);
 
-  const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
-  const proofPath = `${baseUrl}/uploads/payment-proofs/${req.file.filename}`;
-
-  payment.proofImageUrl = proofPath;
+  payment.proofImageUrl = req.uploadedFileUrl;
+  payment.proofImagePublicId = req.uploadedFilePublicId || "";
   payment.paymentStatus = "pending";
   payment.adminNote = null;
   payment.approvedAt = null;

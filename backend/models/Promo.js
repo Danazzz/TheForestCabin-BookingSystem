@@ -27,6 +27,11 @@ const promoSchema = new mongoose.Schema(
       trim: true,
       default: ""
     },
+    imagePublicId: {
+      type: String,
+      trim: true,
+      default: ""
+    },
     adjustmentType: {
       type: String,
       enum: adjustmentTypes,

@@ -34,7 +34,12 @@ NODE_ENV=development
 MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
 UPLOAD_BASE_URL=http://localhost:5001
+UPLOAD_PROVIDER=local
 MAX_UPLOAD_SIZE_MB=5
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+CLOUDINARY_FOLDER=theforestcabin
 DATABASE_STORAGE_LIMIT_MB=512
 DATABASE_STORAGE_WARNING_PERCENT=80
 JWT_SECRET=replace-with-a-long-random-secret
@@ -56,7 +61,12 @@ SMTP_FROM="The Forest Cabin <reservations@theforestcabin.local>"
 SMTP_REPLY_TO=
 ```
 
-Payment proof upload currently uses Multer local storage at `/uploads/payment-proofs`. Set `UPLOAD_BASE_URL` to the deployed backend URL in production, or replace the upload middleware with Cloudinary storage before deploying to non-persistent hosts.
+Uploads use local Multer disk storage by default for development. For production on
+non-persistent platforms, set `UPLOAD_PROVIDER=cloudinary` and configure
+`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
+Payment proofs, promo images, gallery images, payment option images, and invoice
+logos will then be uploaded to Cloudinary. `UPLOAD_BASE_URL` is only needed for
+local upload URLs.
 
 ## Admin Auth
 
