@@ -4,6 +4,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 
 const bookingRoutes = require("./routes/bookingRoutes");
+const authRoutes = require("./routes/authRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
@@ -39,6 +40,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/promos", promoRoutes);

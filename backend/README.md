@@ -35,6 +35,12 @@ MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
 UPLOAD_BASE_URL=http://localhost:5001
 MAX_UPLOAD_SIZE_MB=5
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRES_IN=7d
+ADMIN_SEED_EMAIL=theforestcabin.kintamani@gmail.com
+ADMIN_SEED_USERNAME=admin
+ADMIN_SEED_PASSWORD=replace-with-strong-admin-password
+ADMIN_SEED_NAME=The Forest Cabin Admin
 USER_FRONTEND_URL=http://localhost:5173
 ADMIN_FRONTEND_URL=http://localhost:5174
 ADMIN_NOTIFICATION_EMAILS=
@@ -49,6 +55,37 @@ SMTP_REPLY_TO=
 ```
 
 Payment proof upload currently uses Multer local storage at `/uploads/payment-proofs`. Set `UPLOAD_BASE_URL` to the deployed backend URL in production, or replace the upload middleware with Cloudinary storage before deploying to non-persistent hosts.
+
+## Admin Auth
+
+Admin APIs require a JWT bearer token. Create or update the first admin user from environment variables:
+
+```bash
+cd backend
+npm run seed:admin
+```
+
+Then login from the admin frontend or call:
+
+```http
+POST /api/auth/admin/login
+Content-Type: application/json
+```
+
+```json
+{
+  "identifier": "admin",
+  "password": "your-admin-password"
+}
+```
+
+Use the returned token for admin requests:
+
+```http
+Authorization: Bearer YOUR_TOKEN
+```
+
+Set a strong `JWT_SECRET` in production. `ADMIN_SEED_PASSWORD` should be stored only as an environment variable and should not be committed.
 
 Invoice and booking emails use SMTP through Nodemailer. If SMTP is not configured, bookings can still be approved and invoices are still generated; the invoice email status becomes `not_configured`.
 
@@ -230,9 +267,11 @@ Invoice settings are managed from the admin API and are used when new invoices a
 
 ## Admin API
 
-Auth is a permissive placeholder for now.
+Admin routes require `Authorization: Bearer <token>`.
 
 ```http
+POST /api/auth/admin/login
+GET /api/auth/admin/me
 GET /api/admin/dashboard/summary
 GET /api/admin/bookings
 POST /api/admin/bookings/manual
