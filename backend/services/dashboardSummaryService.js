@@ -1,6 +1,7 @@
 const Booking = require("../models/Booking");
 const Invoice = require("../models/Invoice");
 const Room = require("../models/Room");
+const mongoose = require("mongoose");
 const AppError = require("../utils/AppError");
 const { parseDate } = require("../utils/validators");
 const {
@@ -9,6 +10,8 @@ const {
 } = require("./emailService");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const DEFAULT_DATABASE_STORAGE_LIMIT_MB = 512;
+const DEFAULT_DATABASE_WARNING_PERCENT = 80;
 
 const addDays = (date, days) => {
   const next = new Date(date);
@@ -184,9 +187,69 @@ const getEmailWarningSummary = async () => {
   };
 };
 
+const getNumberFromEnv = (key, fallback) => {
+  const value = Number(process.env[key]);
+
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
+const getDatabaseUsageSummary = async () => {
+  const storageLimitMb = getNumberFromEnv(
+    "DATABASE_STORAGE_LIMIT_MB",
+    DEFAULT_DATABASE_STORAGE_LIMIT_MB
+  );
+  const warningPercent = Math.min(
+    100,
+    getNumberFromEnv("DATABASE_STORAGE_WARNING_PERCENT", DEFAULT_DATABASE_WARNING_PERCENT)
+  );
+  const storageLimitBytes = storageLimitMb * 1024 * 1024;
+
+  try {
+    if (!mongoose.connection?.db) {
+      throw new Error("MongoDB connection is not ready");
+    }
+
+    const stats = await mongoose.connection.db.stats();
+    const usedBytes = Number(stats.storageSize || stats.dataSize || 0);
+    const dataSizeBytes = Number(stats.dataSize || 0);
+    const indexSizeBytes = Number(stats.indexSize || 0);
+    const usagePercent = storageLimitBytes
+      ? Number(((usedBytes / storageLimitBytes) * 100).toFixed(1))
+      : 0;
+
+    return {
+      available: true,
+      databaseName: stats.db || mongoose.connection.name || "",
+      storageLimitMb,
+      warningPercent,
+      usedBytes,
+      usedMb: Number((usedBytes / 1024 / 1024).toFixed(2)),
+      dataSizeMb: Number((dataSizeBytes / 1024 / 1024).toFixed(2)),
+      indexSizeMb: Number((indexSizeBytes / 1024 / 1024).toFixed(2)),
+      usagePercent,
+      isNearLimit: usagePercent >= warningPercent,
+      objectCount: Number(stats.objects || 0),
+      collectionCount: Number(stats.collections || 0)
+    };
+  } catch (error) {
+    return {
+      available: false,
+      storageLimitMb,
+      warningPercent,
+      usedBytes: 0,
+      usedMb: 0,
+      dataSizeMb: 0,
+      indexSizeMb: 0,
+      usagePercent: 0,
+      isNearLimit: false,
+      error: error.message
+    };
+  }
+};
+
 const getDashboardSummary = async ({ startDate, endDate } = {}) => {
   const range = parseDashboardRange({ startDate, endDate });
-  const [rooms, overlappingBookings, emailWarnings] = await Promise.all([
+  const [rooms, overlappingBookings, emailWarnings, databaseUsage] = await Promise.all([
     Room.find({ status: "active" }).sort({ roomType: 1, roomNumber: 1 }),
     Booking.find({
       checkIn: { $lt: range.endDateExclusive },
@@ -202,7 +265,8 @@ const getDashboardSummary = async ({ startDate, endDate } = {}) => {
     })
       .populate("roomId")
       .sort({ checkIn: 1 }),
-    getEmailWarningSummary()
+    getEmailWarningSummary(),
+    getDatabaseUsageSummary()
   ]);
 
   const roomTypeBreakdown = buildRoomTypeBreakdown(rooms, range);
@@ -295,12 +359,14 @@ const getDashboardSummary = async ({ startDate, endDate } = {}) => {
       byRoomType: finalizeRoomTypeBreakdown(roomTypeBreakdown),
       bySource: finalizeSourceBreakdown(sourceBreakdown)
     },
-    emailWarnings
+    emailWarnings,
+    databaseUsage
   };
 };
 
 module.exports = {
   getDashboardSummary,
   parseDashboardRange,
-  getOverlapNights
+  getOverlapNights,
+  getDatabaseUsageSummary
 };

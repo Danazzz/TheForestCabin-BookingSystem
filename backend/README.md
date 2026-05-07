@@ -35,6 +35,8 @@ MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
 UPLOAD_BASE_URL=http://localhost:5001
 MAX_UPLOAD_SIZE_MB=5
+DATABASE_STORAGE_LIMIT_MB=512
+DATABASE_STORAGE_WARNING_PERCENT=80
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRES_IN=7d
 ADMIN_SEED_EMAIL=theforestcabin.kintamani@gmail.com
@@ -296,6 +298,10 @@ GET /api/admin/dashboard/summary?startDate=2026-05-01&endDate=2026-05-31
 The `endDate` filter is inclusive. Occupancy uses proportional room-night
 overlap, so a confirmed booking that crosses month boundaries only contributes
 the nights inside the selected dashboard range.
+
+Database storage warning is included in the dashboard response. Set
+`DATABASE_STORAGE_LIMIT_MB` to your MongoDB plan limit and
+`DATABASE_STORAGE_WARNING_PERCENT` to the warning threshold.
 
 Admin CSV exports:
 
