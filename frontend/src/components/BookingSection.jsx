@@ -738,7 +738,7 @@ export default function BookingSection({ highlight }) {
       setStatusCode(createdBooking.bookingCode || "");
 
       setSuccessMessage(
-        `Booking request submitted. Your code is ${createdBooking.bookingCode}. Admin will check availability before payment is opened.`
+        "Thank you. Your booking request has been received. Please wait for the admin's approval by email before continuing to payment."
       );
     } catch (submitError) {
       setError(normalizeError(submitError));
@@ -1167,7 +1167,7 @@ export default function BookingSection({ highlight }) {
           ) : null}
           {bookingResult?.booking?.bookingStatus === "waiting_availability_approval" ? (
             <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              Admin is checking availability for your requested dates.
+              Thank you. Your booking request has been received. Please wait for the admin's approval by email before continuing to payment.
             </p>
           ) : null}
           {["rejected", "cancelled"].includes(bookingResult?.booking?.bookingStatus) ? (
