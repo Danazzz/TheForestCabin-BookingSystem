@@ -232,6 +232,7 @@ Invoice settings are managed from the admin API and are used when new invoices a
 Auth is a permissive placeholder for now.
 
 ```http
+GET /api/admin/dashboard/summary
 GET /api/admin/bookings
 POST /api/admin/bookings/manual
 GET /api/admin/bookings/waiting-approval
@@ -243,6 +244,16 @@ PATCH /api/admin/bookings/:id/cancel
 POST /api/admin/bookings/:id/payment-reminder
 POST /api/admin/bookings/:id/email/resend
 ```
+
+Dashboard summary:
+
+```http
+GET /api/admin/dashboard/summary?startDate=2026-05-01&endDate=2026-05-31
+```
+
+The `endDate` filter is inclusive. Occupancy uses proportional room-night
+overlap, so a confirmed booking that crosses month boundaries only contributes
+the nights inside the selected dashboard range.
 
 Availability review:
 

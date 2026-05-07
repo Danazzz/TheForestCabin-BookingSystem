@@ -22,6 +22,7 @@ const {
   sendPaymentReminderEmail
 } = require("../services/emailService");
 const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
+const { getDashboardSummary: getDashboardSummaryService } = require("../services/dashboardSummaryService");
 
 const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
 
@@ -325,7 +326,17 @@ const checkAdminAvailability = asyncHandler(async (req, res) => {
   );
 });
 
+const getDashboardSummary = asyncHandler(async (req, res) => {
+  const data = await getDashboardSummaryService({
+    startDate: req.query.startDate,
+    endDate: req.query.endDate
+  });
+
+  sendResponse(res, 200, "Dashboard summary retrieved successfully", data);
+});
+
 module.exports = {
+  getDashboardSummary,
   getAdminBookings,
   createManualBooking,
   getWaitingApprovalBookings,

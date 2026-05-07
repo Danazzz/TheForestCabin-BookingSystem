@@ -1,5 +1,6 @@
 const express = require("express");
 const {
+  getDashboardSummary,
   getAdminBookings,
   createManualBooking,
   getWaitingApprovalBookings,
@@ -46,6 +47,7 @@ const router = express.Router();
 
 router.use(protect, adminOnly);
 
+router.get("/dashboard/summary", getDashboardSummary);
 router.get("/bookings", getAdminBookings);
 router.post("/bookings/manual", createManualBooking);
 router.get("/bookings/waiting-approval", getWaitingApprovalBookings);
