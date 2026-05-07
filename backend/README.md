@@ -38,10 +38,7 @@ MAX_UPLOAD_SIZE_MB=5
 USER_FRONTEND_URL=http://localhost:5173
 ADMIN_FRONTEND_URL=http://localhost:5174
 ADMIN_NOTIFICATION_EMAILS=
-EMAIL_PROVIDER=auto
-RESEND_API_KEY=
-RESEND_FROM="The Forest Cabin <reservations@your-domain.com>"
-RESEND_REPLY_TO=
+SMTP_DAILY_LIMIT=500
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -53,18 +50,22 @@ SMTP_REPLY_TO=
 
 Payment proof upload currently uses Multer local storage at `/uploads/payment-proofs`. Set `UPLOAD_BASE_URL` to the deployed backend URL in production, or replace the upload middleware with Cloudinary storage before deploying to non-persistent hosts.
 
-Invoice and booking emails support Resend for production and SMTP for local testing. `EMAIL_PROVIDER=auto` uses Resend when `RESEND_API_KEY` and `RESEND_FROM` are set, otherwise SMTP when `SMTP_HOST` and `SMTP_FROM` are set. You can also set `EMAIL_PROVIDER=resend` explicitly in production. If no email provider is configured, bookings can still be approved and invoices are still generated; the invoice email status becomes `not_configured`.
+Invoice and booking emails use SMTP through Nodemailer. If SMTP is not configured, bookings can still be approved and invoices are still generated; the invoice email status becomes `not_configured`.
 
-Resend production example:
+Gmail SMTP production example:
 
 ```env
-EMAIL_PROVIDER=resend
-RESEND_API_KEY=re_xxxxxxxxx
-RESEND_FROM="The Forest Cabin <reservations@your-verified-domain.com>"
-RESEND_REPLY_TO=reservations@your-verified-domain.com
+SMTP_DAILY_LIMIT=500
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=theforestcabin.kintamani@gmail.com
+SMTP_PASS=GOOGLE_APP_PASSWORD
+SMTP_FROM="The Forest Cabin <theforestcabin.kintamani@gmail.com>"
+SMTP_REPLY_TO=theforestcabin.kintamani@gmail.com
 ```
 
-Resend requires a verified sending domain before sending from your own domain. For testing with SMTP instead, set `EMAIL_PROVIDER=smtp` and the `SMTP_*` values.
+Use a Google App Password for `SMTP_PASS`, not the normal Gmail password. `SMTP_DAILY_LIMIT` is used for admin dashboard warnings. For regular Gmail accounts, keep it at `500` unless Google changes the account limit.
 
 Set `ADMIN_NOTIFICATION_EMAILS` to one or more comma-separated admin email addresses to notify admins when a guest submits a new booking request. `ADMIN_FRONTEND_URL` is used to build the admin booking detail link in that email.
 
@@ -225,7 +226,7 @@ Get invoice after approval:
 GET /api/invoices/booking/:bookingId
 ```
 
-Invoice settings are managed from the admin API and are used when new invoices are generated and invoice emails are sent. Resend or SMTP credentials remain in `.env`.
+Invoice settings are managed from the admin API and are used when new invoices are generated and invoice emails are sent. SMTP credentials remain in `.env`.
 
 ## Admin API
 
@@ -342,7 +343,7 @@ Content-Type: application/json
 }
 ```
 
-Manual booking sources are dynamic. Create source options through `/api/channels`, then send either the channel `key` as `source` or `channelId` when creating a manual booking. If no source is sent, the backend falls back to `manual_admin` for backwards compatibility. When created as `success` with `paid`, the backend checks availability, creates the calendar event, generates the invoice, and sends the invoice email if invoice settings and the email provider allow it.
+Manual booking sources are dynamic. Create source options through `/api/channels`, then send either the channel `key` as `source` or `channelId` when creating a manual booking. If no source is sent, the backend falls back to `manual_admin` for backwards compatibility. When created as `success` with `paid`, the backend checks availability, creates the calendar event, generates the invoice, and sends the invoice email if invoice settings and SMTP allow it.
 
 Booking source channels:
 

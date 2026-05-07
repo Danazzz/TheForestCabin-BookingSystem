@@ -1,5 +1,4 @@
 const nodemailer = require("nodemailer");
-const { Resend } = require("resend");
 const Invoice = require("../models/Invoice");
 const Booking = require("../models/Booking");
 const {
@@ -44,91 +43,49 @@ const escapeHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-let resendClient = null;
+const SMTP_DAILY_LIMIT_WARNING_CODE = "SMTP_DAILY_LIMIT_REACHED";
+const DEFAULT_SMTP_DAILY_LIMIT = 500;
 
-const getEmailProvider = () => {
-  const configuredProvider = String(process.env.EMAIL_PROVIDER || "").trim().toLowerCase();
+const getSmtpFrom = () => process.env.SMTP_FROM || process.env.EMAIL_FROM || "";
+const getSmtpReplyTo = () => process.env.SMTP_REPLY_TO || process.env.EMAIL_REPLY_TO || "";
+const getSmtpDailyLimit = () => Number(process.env.SMTP_DAILY_LIMIT || DEFAULT_SMTP_DAILY_LIMIT);
+const isSmtpConfigured = () => Boolean(process.env.SMTP_HOST && getSmtpFrom());
+const getSmtpNotConfiguredMessage = () => "SMTP_HOST and SMTP_FROM are not configured";
 
-  if (configuredProvider && configuredProvider !== "auto") {
-    return configuredProvider;
-  }
+const isSmtpLimitError = (error) => {
+  const value = [
+    error?.code,
+    error?.responseCode,
+    error?.command,
+    error?.response,
+    error?.message
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
-  if (process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.EMAIL_FROM)) {
-    return "resend";
-  }
-
-  if (process.env.SMTP_HOST && (process.env.SMTP_FROM || process.env.EMAIL_FROM)) {
-    return "smtp";
-  }
-
-  if (process.env.RESEND_API_KEY) {
-    return "resend";
-  }
-
-  if (process.env.SMTP_HOST) {
-    return "smtp";
-  }
-
-  return "";
+  return [
+    "daily user sending quota exceeded",
+    "daily sending quota exceeded",
+    "user-rate limit exceeded",
+    "rate limit",
+    "quota",
+    "too many",
+    "limit exceeded",
+    "454 4.7.0",
+    "452 4.2.2",
+    "421 4.7.0"
+  ].some((pattern) => value.includes(pattern));
 };
 
-const getEmailFrom = (provider = getEmailProvider()) => {
-  if (provider === "resend") {
-    return process.env.RESEND_FROM || process.env.EMAIL_FROM || "";
+const normalizeEmailError = (error) => {
+  const rawMessage = error?.message || error?.response || "Failed to send email";
+
+  if (isSmtpLimitError(error)) {
+    return `${SMTP_DAILY_LIMIT_WARNING_CODE}: SMTP daily sending limit may have been reached. Contact guests manually via WhatsApp until the quota resets. Original error: ${rawMessage}`;
   }
 
-  if (provider === "smtp") {
-    return process.env.SMTP_FROM || process.env.EMAIL_FROM || "";
-  }
-
-  return process.env.EMAIL_FROM || process.env.RESEND_FROM || process.env.SMTP_FROM || "";
-};
-
-const getEmailReplyTo = (provider = getEmailProvider()) => {
-  if (provider === "resend") {
-    return process.env.RESEND_REPLY_TO || process.env.EMAIL_REPLY_TO || "";
-  }
-
-  if (provider === "smtp") {
-    return process.env.SMTP_REPLY_TO || process.env.EMAIL_REPLY_TO || "";
-  }
-
-  return process.env.EMAIL_REPLY_TO || process.env.RESEND_REPLY_TO || process.env.SMTP_REPLY_TO || "";
-};
-
-const isResendConfigured = () => Boolean(process.env.RESEND_API_KEY && getEmailFrom("resend"));
-const isSmtpConfigured = () => Boolean(process.env.SMTP_HOST && getEmailFrom("smtp"));
-
-const isEmailConfigured = () => {
-  const provider = getEmailProvider();
-
-  if (provider === "resend") {
-    return isResendConfigured();
-  }
-
-  if (provider === "smtp") {
-    return isSmtpConfigured();
-  }
-
-  return false;
-};
-
-const getEmailNotConfiguredMessage = () => {
-  const provider = getEmailProvider();
-
-  if (provider === "resend") {
-    return "RESEND_API_KEY and RESEND_FROM are not configured";
-  }
-
-  if (provider === "smtp") {
-    return "SMTP_HOST and SMTP_FROM are not configured";
-  }
-
-  if (provider) {
-    return `Unsupported EMAIL_PROVIDER "${provider}". Use resend, smtp, or auto.`;
-  }
-
-  return "EMAIL_PROVIDER is not configured. Use resend or smtp.";
+  return rawMessage;
 };
 
 const buildTransport = () => {
@@ -148,48 +105,17 @@ const buildTransport = () => {
   });
 };
 
-const getResendClient = () => {
-  if (!resendClient) {
-    resendClient = new Resend(process.env.RESEND_API_KEY);
-  }
-
-  return resendClient;
-};
-
 const sendEmail = async ({ to, subject, html }) => {
-  const provider = getEmailProvider();
-  const from = getEmailFrom(provider);
-  const replyTo = getEmailReplyTo(provider);
+  const payload = { from: getSmtpFrom(), to, subject, html };
+  const replyTo = getSmtpReplyTo();
 
-  if (provider === "resend") {
-    const payload = { from, to, subject, html };
-
-    if (replyTo) {
-      payload.replyTo = replyTo;
-    }
-
-    const { data, error } = await getResendClient().emails.send(payload);
-
-    if (error) {
-      throw new Error(error.message || JSON.stringify(error));
-    }
-
-    return { provider, id: data?.id || "" };
+  if (replyTo) {
+    payload.replyTo = replyTo;
   }
 
-  if (provider === "smtp") {
-    const payload = { from, to, subject, html };
+  const info = await buildTransport().sendMail(payload);
 
-    if (replyTo) {
-      payload.replyTo = replyTo;
-    }
-
-    const info = await buildTransport().sendMail(payload);
-
-    return { provider, id: info.messageId || "" };
-  }
-
-  throw new Error(getEmailNotConfiguredMessage());
+  return { provider: "smtp", id: info.messageId || "" };
 };
 
 const buildInvoiceUrl = (bookingCode, settings) => {
@@ -399,12 +325,12 @@ const sendInvoiceEmail = async (invoiceId) => {
     return { sent: false, reason: "guest_email_missing" };
   }
 
-  if (!isEmailConfigured()) {
+  if (!isSmtpConfigured()) {
     invoice.emailStatus = "not_configured";
-    invoice.emailError = getEmailNotConfiguredMessage();
+    invoice.emailError = getSmtpNotConfiguredMessage();
     await invoice.save();
 
-    return { sent: false, reason: "email_not_configured" };
+    return { sent: false, reason: "smtp_not_configured" };
   }
 
   try {
@@ -427,7 +353,7 @@ const sendInvoiceEmail = async (invoiceId) => {
     return { sent: true, provider: emailResult.provider, id: emailResult.id };
   } catch (error) {
     invoice.emailStatus = "failed";
-    invoice.emailError = error.message || "Failed to send invoice email";
+    invoice.emailError = normalizeEmailError(error);
     await invoice.save();
 
     return { sent: false, reason: "send_failed", error: invoice.emailError };
@@ -518,11 +444,11 @@ const sendAdminBookingRequestEmail = async (bookingId) => {
     return { sent: false, reason: "booking_not_found" };
   }
 
-  if (!isEmailConfigured()) {
+  if (!isSmtpConfigured()) {
     return {
       sent: false,
-      reason: "email_not_configured",
-      error: getEmailNotConfiguredMessage()
+      reason: "smtp_not_configured",
+      error: getSmtpNotConfiguredMessage()
     };
   }
 
@@ -545,7 +471,7 @@ const sendAdminBookingRequestEmail = async (bookingId) => {
     return {
       sent: false,
       reason: "send_failed",
-      error: error.message || "Failed to send admin booking notification"
+      error: normalizeEmailError(error)
     };
   }
 };
@@ -659,15 +585,15 @@ const sendBookingStatusEmail = async ({
     return { sent: false, reason: "guest_email_missing" };
   }
 
-  if (!isEmailConfigured()) {
+  if (!isSmtpConfigured()) {
     await markBookingEmailDelivery(booking, {
       status: "not_configured",
       type: emailType,
       recipient: booking.guestEmail,
-      error: getEmailNotConfiguredMessage()
+      error: getSmtpNotConfiguredMessage()
     });
 
-    return { sent: false, reason: "email_not_configured" };
+    return { sent: false, reason: "smtp_not_configured" };
   }
 
   try {
@@ -698,13 +624,13 @@ const sendBookingStatusEmail = async ({
       status: "failed",
       type: emailType,
       recipient: booking.guestEmail,
-      error: error.message || "Failed to send booking email"
+      error: normalizeEmailError(error)
     });
 
     return {
       sent: false,
       reason: "send_failed",
-      error: error.message || "Failed to send booking email"
+      error: normalizeEmailError(error)
     };
   }
 };
@@ -747,5 +673,7 @@ module.exports = {
   sendAdminBookingRequestEmail,
   sendAvailabilityApprovedEmail,
   sendNoRoomAvailableEmail,
-  sendPaymentReminderEmail
+  sendPaymentReminderEmail,
+  SMTP_DAILY_LIMIT_WARNING_CODE,
+  getSmtpDailyLimit
 };

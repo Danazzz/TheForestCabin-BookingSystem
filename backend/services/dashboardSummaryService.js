@@ -1,7 +1,12 @@
 const Booking = require("../models/Booking");
+const Invoice = require("../models/Invoice");
 const Room = require("../models/Room");
 const AppError = require("../utils/AppError");
 const { parseDate } = require("../utils/validators");
+const {
+  SMTP_DAILY_LIMIT_WARNING_CODE,
+  getSmtpDailyLimit
+} = require("./emailService");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -132,9 +137,56 @@ const finalizeSourceBreakdown = (sourceBreakdown) =>
     }))
     .sort((a, b) => b.revenue - a.revenue || a.sourceName.localeCompare(b.sourceName));
 
+const isLimitWarning = (value) =>
+  String(value || "").includes(SMTP_DAILY_LIMIT_WARNING_CODE);
+
+const getEmailWarningSummary = async () => {
+  const now = new Date();
+  const startDate = startOfUtcDay(now);
+  const endDate = addDays(startDate, 1);
+  const [bookingEmails, invoiceEmails] = await Promise.all([
+    Booking.find({
+      emailLastAttemptedAt: { $gte: startDate, $lt: endDate },
+      emailDeliveryStatus: { $in: ["sent", "failed", "not_configured"] }
+    }).select("emailDeliveryStatus emailDeliveryError emailLastAttemptedAt bookingCode"),
+    Invoice.find({
+      updatedAt: { $gte: startDate, $lt: endDate },
+      emailStatus: { $in: ["sent", "failed", "not_configured"] }
+    }).select("emailStatus emailError emailedAt updatedAt invoiceNumber")
+  ]);
+  const failedBookingEmails = bookingEmails.filter((booking) =>
+    ["failed", "not_configured"].includes(booking.emailDeliveryStatus)
+  );
+  const failedInvoiceEmails = invoiceEmails.filter((invoice) =>
+    ["failed", "not_configured"].includes(invoice.emailStatus)
+  );
+  const limitFailures = [
+    ...failedBookingEmails.filter((booking) => isLimitWarning(booking.emailDeliveryError)),
+    ...failedInvoiceEmails.filter((invoice) => isLimitWarning(invoice.emailError))
+  ];
+  const lastFailure = [...failedBookingEmails, ...failedInvoiceEmails]
+    .sort((a, b) => {
+      const aDate = new Date(a.emailLastAttemptedAt || a.updatedAt || 0).getTime();
+      const bDate = new Date(b.emailLastAttemptedAt || b.updatedAt || 0).getTime();
+
+      return bDate - aDate;
+    })[0];
+
+  return {
+    smtpDailyLimit: getSmtpDailyLimit(),
+    sentToday:
+      bookingEmails.filter((booking) => booking.emailDeliveryStatus === "sent").length +
+      invoiceEmails.filter((invoice) => invoice.emailStatus === "sent").length,
+    failedToday: failedBookingEmails.length + failedInvoiceEmails.length,
+    limitFailuresToday: limitFailures.length,
+    smtpLimitReached: limitFailures.length > 0,
+    lastError: lastFailure?.emailDeliveryError || lastFailure?.emailError || ""
+  };
+};
+
 const getDashboardSummary = async ({ startDate, endDate } = {}) => {
   const range = parseDashboardRange({ startDate, endDate });
-  const [rooms, overlappingBookings] = await Promise.all([
+  const [rooms, overlappingBookings, emailWarnings] = await Promise.all([
     Room.find({ status: "active" }).sort({ roomType: 1, roomNumber: 1 }),
     Booking.find({
       checkIn: { $lt: range.endDateExclusive },
@@ -149,7 +201,8 @@ const getDashboardSummary = async ({ startDate, endDate } = {}) => {
       }
     })
       .populate("roomId")
-      .sort({ checkIn: 1 })
+      .sort({ checkIn: 1 }),
+    getEmailWarningSummary()
   ]);
 
   const roomTypeBreakdown = buildRoomTypeBreakdown(rooms, range);
@@ -241,7 +294,8 @@ const getDashboardSummary = async ({ startDate, endDate } = {}) => {
     breakdowns: {
       byRoomType: finalizeRoomTypeBreakdown(roomTypeBreakdown),
       bySource: finalizeSourceBreakdown(sourceBreakdown)
-    }
+    },
+    emailWarnings
   };
 };
 

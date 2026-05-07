@@ -10,6 +10,9 @@ import {
 } from "../services/api";
 
 const PROPERTY_ID = "forest-cabin-main";
+const WHATSAPP_NUMBER = "6281511671818";
+const WHATSAPP_FALLBACK_MESSAGE =
+  "Halo The Forest Cabin, saya ingin konfirmasi booking karena email notifikasi belum saya terima.";
 
 const paymentMethodLabels = {
   manual_transfer: "Transfer Rekening",
@@ -265,6 +268,18 @@ const getInitialBookingCode = () => {
 
   return bookingCode ? bookingCode.trim().toUpperCase() : "";
 };
+
+const getWhatsAppFallbackUrl = (bookingCode = "") => {
+  const message = bookingCode
+    ? `${WHATSAPP_FALLBACK_MESSAGE} Kode booking saya ${bookingCode}.`
+    : WHATSAPP_FALLBACK_MESSAGE;
+
+  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+};
+
+const hasEmailDeliveryIssue = (booking, invoice) =>
+  ["failed", "not_configured"].includes(booking?.emailDeliveryStatus) ||
+  ["failed", "not_configured"].includes(invoice?.emailStatus);
 
 export default function BookingSection({ highlight }) {
   const autoLoadedStatusRef = useRef(false);
@@ -1430,6 +1445,23 @@ export default function BookingSection({ highlight }) {
                     {paymentDetails.instructions}
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {hasEmailDeliveryIssue(bookingResult.booking, invoice) ? (
+              <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                <p className="font-semibold">Email notification may not be delivered</p>
+                <p className="mt-1">
+                  Please save your booking code and contact us through WhatsApp for manual confirmation.
+                </p>
+                <a
+                  href={getWhatsAppFallbackUrl(bookingResult.booking.bookingCode)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex rounded bg-green-600 px-3 py-2 font-semibold text-white transition hover:bg-green-700"
+                >
+                  Contact via WhatsApp
+                </a>
               </div>
             ) : null}
 
