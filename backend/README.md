@@ -17,7 +17,7 @@ npm run dev
 Base URL:
 
 ```txt
-http://localhost:5000
+http://localhost:5001
 ```
 
 Health check:
@@ -29,11 +29,11 @@ GET /api/health
 ## Environment
 
 ```env
-PORT=5000
+PORT=5001
 NODE_ENV=development
 MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
-UPLOAD_BASE_URL=http://localhost:5000
+UPLOAD_BASE_URL=http://localhost:5001
 MAX_UPLOAD_SIZE_MB=5
 USER_FRONTEND_URL=http://localhost:5173
 SMTP_HOST=

@@ -65,11 +65,6 @@ const roomSchema = new mongoose.Schema(
       type: [String],
       default: []
     },
-    sortOrder: {
-      type: Number,
-      default: 0,
-      index: true
-    },
     status: {
       type: String,
       enum: roomStatuses,

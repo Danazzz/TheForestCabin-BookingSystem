@@ -16,14 +16,9 @@ const {
 const normalizeRoomPayload = (body) => {
   const roomType = Room.normalizeRoomType(body.roomType);
   const status = body.status || (body.isActive === false ? "inactive" : "active");
-  const sortOrder = Number(body.sortOrder || 0);
 
   if (!roomType) {
     throw new AppError("roomType is required", 400);
-  }
-
-  if (Number.isNaN(sortOrder)) {
-    throw new AppError("sortOrder must be a number", 400);
   }
 
   validateEnum(status, Room.roomStatuses, "status");
@@ -39,7 +34,6 @@ const normalizeRoomPayload = (body) => {
     imageUrl: String(body.imageUrl || "").trim(),
     altText: String(body.altText || "").trim(),
     details: parseRoomDetails(body.details),
-    sortOrder,
     status
   };
 };
@@ -101,7 +95,7 @@ const listRoomTypes = asyncHandler(async (req, res) => {
         imageUrl: room.imageUrl || "",
         altText: room.altText || "",
         details: room.details || [],
-        sortOrder: room.sortOrder || 0,
+        firstRoomNumber: room.roomNumber,
         availableUnits: 1
       });
       return;
@@ -114,13 +108,20 @@ const listRoomTypes = asyncHandler(async (req, res) => {
     current.imageUrl = current.imageUrl || room.imageUrl || "";
     current.altText = current.altText || room.altText || "";
     current.details = current.details.length > 0 ? current.details : room.details || [];
-    current.sortOrder = Math.min(current.sortOrder || 0, room.sortOrder || 0);
+    current.firstRoomNumber = [current.firstRoomNumber, room.roomNumber].sort((left, right) =>
+      String(left || "").localeCompare(String(right || ""), undefined, { numeric: true })
+    )[0];
     current.availableUnits += 1;
   });
 
   const roomTypes = Array.from(typeMap.values()).sort((left, right) => (
-    left.sortOrder - right.sortOrder || left.roomType.localeCompare(right.roomType)
+    String(left.firstRoomNumber || "").localeCompare(String(right.firstRoomNumber || ""), undefined, { numeric: true }) ||
+    left.roomType.localeCompare(right.roomType)
   ));
+
+  roomTypes.forEach((roomType) => {
+    delete roomType.firstRoomNumber;
+  });
 
   sendResponse(res, 200, "Room types retrieved successfully", roomTypes);
 });
@@ -206,16 +207,6 @@ const updateRoom = asyncHandler(async (req, res) => {
 
   if (req.body.details !== undefined) {
     updates.details = parseRoomDetails(req.body.details);
-  }
-
-  if (req.body.sortOrder !== undefined) {
-    const sortOrder = Number(req.body.sortOrder || 0);
-
-    if (Number.isNaN(sortOrder)) {
-      throw new AppError("sortOrder must be a number", 400);
-    }
-
-    updates.sortOrder = sortOrder;
   }
 
   if (req.body.status !== undefined || req.body.isActive !== undefined) {
