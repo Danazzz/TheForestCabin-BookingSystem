@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const Invoice = require("../models/Invoice");
 const Booking = require("../models/Booking");
 const {
@@ -43,7 +44,92 @@ const escapeHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-const isSmtpConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_FROM);
+let resendClient = null;
+
+const getEmailProvider = () => {
+  const configuredProvider = String(process.env.EMAIL_PROVIDER || "").trim().toLowerCase();
+
+  if (configuredProvider && configuredProvider !== "auto") {
+    return configuredProvider;
+  }
+
+  if (process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.EMAIL_FROM)) {
+    return "resend";
+  }
+
+  if (process.env.SMTP_HOST && (process.env.SMTP_FROM || process.env.EMAIL_FROM)) {
+    return "smtp";
+  }
+
+  if (process.env.RESEND_API_KEY) {
+    return "resend";
+  }
+
+  if (process.env.SMTP_HOST) {
+    return "smtp";
+  }
+
+  return "";
+};
+
+const getEmailFrom = (provider = getEmailProvider()) => {
+  if (provider === "resend") {
+    return process.env.RESEND_FROM || process.env.EMAIL_FROM || "";
+  }
+
+  if (provider === "smtp") {
+    return process.env.SMTP_FROM || process.env.EMAIL_FROM || "";
+  }
+
+  return process.env.EMAIL_FROM || process.env.RESEND_FROM || process.env.SMTP_FROM || "";
+};
+
+const getEmailReplyTo = (provider = getEmailProvider()) => {
+  if (provider === "resend") {
+    return process.env.RESEND_REPLY_TO || process.env.EMAIL_REPLY_TO || "";
+  }
+
+  if (provider === "smtp") {
+    return process.env.SMTP_REPLY_TO || process.env.EMAIL_REPLY_TO || "";
+  }
+
+  return process.env.EMAIL_REPLY_TO || process.env.RESEND_REPLY_TO || process.env.SMTP_REPLY_TO || "";
+};
+
+const isResendConfigured = () => Boolean(process.env.RESEND_API_KEY && getEmailFrom("resend"));
+const isSmtpConfigured = () => Boolean(process.env.SMTP_HOST && getEmailFrom("smtp"));
+
+const isEmailConfigured = () => {
+  const provider = getEmailProvider();
+
+  if (provider === "resend") {
+    return isResendConfigured();
+  }
+
+  if (provider === "smtp") {
+    return isSmtpConfigured();
+  }
+
+  return false;
+};
+
+const getEmailNotConfiguredMessage = () => {
+  const provider = getEmailProvider();
+
+  if (provider === "resend") {
+    return "RESEND_API_KEY and RESEND_FROM are not configured";
+  }
+
+  if (provider === "smtp") {
+    return "SMTP_HOST and SMTP_FROM are not configured";
+  }
+
+  if (provider) {
+    return `Unsupported EMAIL_PROVIDER "${provider}". Use resend, smtp, or auto.`;
+  }
+
+  return "EMAIL_PROVIDER is not configured. Use resend or smtp.";
+};
 
 const buildTransport = () => {
   const auth =
@@ -60,6 +146,50 @@ const buildTransport = () => {
     secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
     auth
   });
+};
+
+const getResendClient = () => {
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+
+  return resendClient;
+};
+
+const sendEmail = async ({ to, subject, html }) => {
+  const provider = getEmailProvider();
+  const from = getEmailFrom(provider);
+  const replyTo = getEmailReplyTo(provider);
+
+  if (provider === "resend") {
+    const payload = { from, to, subject, html };
+
+    if (replyTo) {
+      payload.replyTo = replyTo;
+    }
+
+    const { data, error } = await getResendClient().emails.send(payload);
+
+    if (error) {
+      throw new Error(error.message || JSON.stringify(error));
+    }
+
+    return { provider, id: data?.id || "" };
+  }
+
+  if (provider === "smtp") {
+    const payload = { from, to, subject, html };
+
+    if (replyTo) {
+      payload.replyTo = replyTo;
+    }
+
+    const info = await buildTransport().sendMail(payload);
+
+    return { provider, id: info.messageId || "" };
+  }
+
+  throw new Error(getEmailNotConfiguredMessage());
 };
 
 const buildInvoiceUrl = (bookingCode, settings) => {
@@ -269,23 +399,21 @@ const sendInvoiceEmail = async (invoiceId) => {
     return { sent: false, reason: "guest_email_missing" };
   }
 
-  if (!isSmtpConfigured()) {
+  if (!isEmailConfigured()) {
     invoice.emailStatus = "not_configured";
-    invoice.emailError = "SMTP_HOST and SMTP_FROM are not configured";
+    invoice.emailError = getEmailNotConfiguredMessage();
     await invoice.save();
 
-    return { sent: false, reason: "smtp_not_configured" };
+    return { sent: false, reason: "email_not_configured" };
   }
 
   try {
-    const transport = buildTransport();
     const subject = renderTemplate(
       settings.emailSubject || "{{businessName}} Invoice {{invoiceNumber}}",
       buildTemplateVariables(invoice, settings)
     );
 
-    await transport.sendMail({
-      from: process.env.SMTP_FROM,
+    const emailResult = await sendEmail({
       to: invoice.guestEmail,
       subject,
       html: buildInvoiceEmailHtml(invoice, settings)
@@ -296,7 +424,7 @@ const sendInvoiceEmail = async (invoiceId) => {
     invoice.emailError = "";
     await invoice.save();
 
-    return { sent: true };
+    return { sent: true, provider: emailResult.provider, id: emailResult.id };
   } catch (error) {
     invoice.emailStatus = "failed";
     invoice.emailError = error.message || "Failed to send invoice email";
@@ -390,22 +518,29 @@ const sendAdminBookingRequestEmail = async (bookingId) => {
     return { sent: false, reason: "booking_not_found" };
   }
 
-  if (!isSmtpConfigured()) {
-    return { sent: false, reason: "smtp_not_configured" };
+  if (!isEmailConfigured()) {
+    return {
+      sent: false,
+      reason: "email_not_configured",
+      error: getEmailNotConfiguredMessage()
+    };
   }
 
   try {
     const settings = buildInvoiceSettingsSnapshot(await getInvoiceSettings());
-    const transport = buildTransport();
 
-    await transport.sendMail({
-      from: process.env.SMTP_FROM,
+    const emailResult = await sendEmail({
       to: recipients,
       subject: `New Booking Request - ${booking.bookingCode}`,
       html: buildAdminBookingRequestEmailHtml(booking, settings)
     });
 
-    return { sent: true, recipients };
+    return {
+      sent: true,
+      recipients,
+      provider: emailResult.provider,
+      id: emailResult.id
+    };
   } catch (error) {
     return {
       sent: false,
@@ -524,23 +659,21 @@ const sendBookingStatusEmail = async ({
     return { sent: false, reason: "guest_email_missing" };
   }
 
-  if (!isSmtpConfigured()) {
+  if (!isEmailConfigured()) {
     await markBookingEmailDelivery(booking, {
       status: "not_configured",
       type: emailType,
       recipient: booking.guestEmail,
-      error: "SMTP_HOST and SMTP_FROM are not configured"
+      error: getEmailNotConfiguredMessage()
     });
 
-    return { sent: false, reason: "smtp_not_configured" };
+    return { sent: false, reason: "email_not_configured" };
   }
 
   try {
     const settings = buildInvoiceSettingsSnapshot(await getInvoiceSettings());
-    const transport = buildTransport();
 
-    await transport.sendMail({
-      from: process.env.SMTP_FROM,
+    const emailResult = await sendEmail({
       to: booking.guestEmail,
       subject: subject.replace("{{businessName}}", settings.businessName),
       html: buildBookingStatusEmailHtml({
@@ -559,7 +692,7 @@ const sendBookingStatusEmail = async ({
       sent: true
     });
 
-    return { sent: true };
+    return { sent: true, provider: emailResult.provider, id: emailResult.id };
   } catch (error) {
     await markBookingEmailDelivery(booking, {
       status: "failed",
