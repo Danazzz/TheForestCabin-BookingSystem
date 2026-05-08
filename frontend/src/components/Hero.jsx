@@ -7,7 +7,8 @@ export default function Hero({ onBookClick }) {
 
       {/* Background */}
       <img
-        src="/public/homepage/IMG_0728.jpg"
+        src="/homepage/IMG_0728.jpg"
+        alt=""
         className="absolute inset-0 w-full h-full object-cover"
       />
 

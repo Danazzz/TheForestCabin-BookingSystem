@@ -6,16 +6,22 @@ export default function AccommodationCard({
   onToggle,
 }) {
   const details = item.details || [];
-  const imageUrl = sanitizeMediaUrl(item.image) || "/gallery/IMG_0748.jpg";
+  const imageUrl = sanitizeMediaUrl(item.image);
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-md transition duration-300">
 
-      <img
-        src={imageUrl}
-        alt={item.altText || item.name}
-        className="h-44 md:h-48 w-full object-cover"
-      />
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={item.altText || item.name}
+          className="h-44 md:h-48 w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-44 w-full items-center justify-center bg-cream text-sm text-gray-500 md:h-48">
+          Image will be updated soon.
+        </div>
+      )}
 
       <div className="p-4 text-left">
         <h3 className="text-lg md:text-xl font-semibold text-forest">

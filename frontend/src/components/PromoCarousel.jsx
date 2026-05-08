@@ -2,26 +2,8 @@ import { useEffect, useState } from "react";
 import { promoApi } from "../services/api";
 import { sanitizeMediaUrl } from "../utils/security";
 
-const fallbackPromos = [
-  {
-    title: "Stay 3 Nights, Get 20% OFF",
-    description: "Perfect for a relaxing long weekend in nature",
-    imageUrl: "/gallery/IMG_0743.jpg",
-  },
-  {
-    title: "Honeymoon Package",
-    description: "Romantic setup with special forest view",
-    imageUrl: "/gallery/IMG_0750.jpg",
-  },
-  {
-    title: "Family Getaway",
-    description: "Spacious cabins for your whole family",
-    imageUrl: "/gallery/IMG_0748.jpg",
-  },
-];
-
 export default function PromoCarousel() {
-  const [promos, setPromos] = useState(fallbackPromos);
+  const [promos, setPromos] = useState([]);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -41,7 +23,7 @@ export default function PromoCarousel() {
         }
       } catch {
         if (!ignore) {
-          setPromos(fallbackPromos);
+          setPromos([]);
         }
       }
     };
@@ -71,6 +53,11 @@ export default function PromoCarousel() {
         Special Offers
       </h2>
 
+      {promos.length === 0 ? (
+        <div className="max-w-4xl mx-auto rounded-2xl border border-forest/10 bg-white/70 px-4 py-10 text-center text-sm text-gray-600">
+          Special offers will be updated soon.
+        </div>
+      ) : (
       <div className="max-w-4xl mx-auto relative overflow-hidden rounded-2xl shadow-lg">
 
         {/* SLIDES */}
@@ -86,11 +73,15 @@ export default function PromoCarousel() {
               className="min-w-full relative h-56 md:h-72"
             >
               {/* IMAGE */}
-              <img
-                src={sanitizeMediaUrl(promo.imageUrl) || "/gallery/IMG_0743.jpg"}
-                alt={promo.altText || promo.title}
-                className="w-full h-full object-cover"
-              />
+              {sanitizeMediaUrl(promo.imageUrl) ? (
+                <img
+                  src={sanitizeMediaUrl(promo.imageUrl)}
+                  alt={promo.altText || promo.title}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full bg-forest" />
+              )}
 
               {/* OVERLAY */}
               <div className="absolute inset-0 bg-black/50" />
@@ -120,6 +111,7 @@ export default function PromoCarousel() {
           ))}
         </div>
       </div>
+      )}
     </section>
   );
 }

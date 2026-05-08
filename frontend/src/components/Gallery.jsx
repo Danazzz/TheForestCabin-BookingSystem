@@ -2,26 +2,8 @@ import { useEffect, useState } from "react";
 import { galleryApi } from "../services/api";
 import { sanitizeMediaUrl } from "../utils/security";
 
-const fallbackImages = [
-  {
-    id: "gallery-0743",
-    imageUrl: "/gallery/IMG_0743.jpg",
-    title: "Forest Cabin gallery",
-  },
-  {
-    id: "gallery-0748",
-    imageUrl: "/gallery/IMG_0748.jpg",
-    title: "Forest Cabin gallery",
-  },
-  {
-    id: "gallery-0750",
-    imageUrl: "/gallery/IMG_0750.jpg",
-    title: "Forest Cabin gallery",
-  },
-];
-
 export default function Gallery() {
-  const [images, setImages] = useState(fallbackImages);
+  const [images, setImages] = useState([]);
   const [current, setCurrent] = useState(0);
 
   useEffect(() => {
@@ -43,7 +25,7 @@ export default function Gallery() {
         }
       } catch {
         if (!ignore) {
-          setImages(fallbackImages);
+          setImages([]);
         }
       }
     };
@@ -73,6 +55,11 @@ export default function Gallery() {
         Gallery
       </h2>
 
+      {images.length === 0 ? (
+        <div className="mx-auto max-w-4xl rounded-xl border border-forest/10 bg-white/70 px-4 py-10 text-sm text-gray-600">
+          Gallery images will be updated soon.
+        </div>
+      ) : (
       <div className="relative w-full max-w-4xl mx-auto overflow-hidden rounded-xl shadow-lg">
 
         {/* Images */}
@@ -83,7 +70,7 @@ export default function Gallery() {
           {images.map((image, index) => (
             <img
               key={image.id || index}
-              src={sanitizeMediaUrl(image.imageUrl) || "/gallery/IMG_0743.jpg"}
+              src={sanitizeMediaUrl(image.imageUrl)}
               alt={image.altText || image.title || "Forest Cabin gallery"}
               className="w-full h-64 md:h-96 object-cover flex-shrink-0"
             />
@@ -105,6 +92,7 @@ export default function Gallery() {
         </div>
 
       </div>
+      )}
     </section>
   );
 }

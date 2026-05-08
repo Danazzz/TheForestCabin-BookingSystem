@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import AccommodationCard from "./AccommodationCard";
-import { accommodations } from "../data/accommodations";
 import { roomApi } from "../services/api";
 import { sanitizeMediaUrl } from "../utils/security";
 
 export default function AccommodationList() {
   const [activeIndex, setActiveIndex] = useState(null);
-  const [items, setItems] = useState(accommodations);
+  const [items, setItems] = useState([]);
 
   useEffect(() => {
     let ignore = false;
@@ -17,18 +16,18 @@ export default function AccommodationList() {
         const nextItems = (response.data || []).map((item) => ({
           id: item.roomType,
           name: item.label || item.roomType,
-          image: sanitizeMediaUrl(item.imageUrl) || "/gallery/IMG_0748.jpg",
+          image: sanitizeMediaUrl(item.imageUrl),
           description: item.description,
           details: item.details || [],
           altText: item.altText,
         }));
 
-        if (!ignore && nextItems.length > 0) {
+        if (!ignore) {
           setItems(nextItems);
         }
       } catch {
         if (!ignore) {
-          setItems(accommodations);
+          setItems([]);
         }
       }
     };
@@ -61,6 +60,12 @@ export default function AccommodationList() {
         ))}
 
       </div>
+
+      {items.length === 0 ? (
+        <div className="mx-auto max-w-3xl rounded-xl border border-forest/10 bg-white/70 px-4 py-10 text-center text-sm text-gray-600">
+          Accommodations will be updated soon.
+        </div>
+      ) : null}
     </section>
   );
 }
