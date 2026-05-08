@@ -12,6 +12,7 @@ const {
   getAvailabilityByRoomType,
   getAvailabilityCalendarByRoomType
 } = require("../services/availabilityService");
+const { deleteCloudinaryAsset } = require("../config/cloudinary");
 
 const normalizeRoomPayload = (body) => {
   const roomType = Room.normalizeRoomType(body.roomType);
@@ -32,6 +33,7 @@ const normalizeRoomPayload = (body) => {
     basePrice: validatePositiveNumber(body.basePrice || 0, "basePrice", true),
     description: String(body.description || "").trim(),
     imageUrl: String(body.imageUrl || "").trim(),
+    imagePublicId: "",
     altText: String(body.altText || "").trim(),
     details: parseRoomDetails(body.details),
     status
@@ -146,6 +148,11 @@ const createRoom = asyncHandler(async (req, res) => {
     throw new AppError("roomNumber is required", 400);
   }
 
+  if (req.uploadedFileUrl) {
+    payload.imageUrl = req.uploadedFileUrl;
+    payload.imagePublicId = req.uploadedFilePublicId || "";
+  }
+
   const room = await Room.create(payload);
 
   sendResponse(res, 201, "Room created successfully", room);
@@ -199,6 +206,12 @@ const updateRoom = asyncHandler(async (req, res) => {
 
   if (req.body.imageUrl !== undefined) {
     updates.imageUrl = String(req.body.imageUrl || "").trim();
+    updates.imagePublicId = "";
+  }
+
+  if (req.uploadedFileUrl) {
+    updates.imageUrl = req.uploadedFileUrl;
+    updates.imagePublicId = req.uploadedFilePublicId || "";
   }
 
   if (req.body.altText !== undefined) {
@@ -215,13 +228,29 @@ const updateRoom = asyncHandler(async (req, res) => {
     updates.status = status;
   }
 
+  const existingRoom = await Room.findById(req.params.id);
+
+  if (!existingRoom) {
+    throw new AppError("Room not found", 404);
+  }
+
+  if (updates.imageUrl !== undefined && !req.uploadedFileUrl) {
+    updates.imagePublicId = updates.imageUrl === existingRoom.imageUrl
+      ? existingRoom.imagePublicId
+      : "";
+  }
+
   const room = await Room.findByIdAndUpdate(req.params.id, updates, {
     new: true,
     runValidators: true
   });
 
-  if (!room) {
-    throw new AppError("Room not found", 404);
+  if (
+    (req.uploadedFilePublicId || (updates.imageUrl !== undefined && updates.imageUrl !== existingRoom.imageUrl)) &&
+    existingRoom.imagePublicId &&
+    existingRoom.imagePublicId !== req.uploadedFilePublicId
+  ) {
+    await deleteCloudinaryAsset(existingRoom.imagePublicId).catch(() => null);
   }
 
   sendResponse(res, 200, "Room updated successfully", room);
