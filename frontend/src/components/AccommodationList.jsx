@@ -62,17 +62,21 @@ export default function AccommodationList() {
         Our Accommodations
       </h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-stretch justify-center gap-6">
 
         {items.map((item, index) => (
-          <AccommodationCard
+          <div
             key={item.id}
-            item={item}
-            isActive={activeIndex === index}
-            onToggle={() =>
-              setActiveIndex(activeIndex === index ? null : index)
-            }
-          />
+            className="flex w-full max-w-[420px] sm:basis-[calc((100%-1.5rem)/2)] md:max-w-none md:basis-[calc((100%-3rem)/3)]"
+          >
+            <AccommodationCard
+              item={item}
+              isActive={activeIndex === index}
+              onToggle={() =>
+                setActiveIndex(activeIndex === index ? null : index)
+              }
+            />
+          </div>
         ))}
 
       </div>

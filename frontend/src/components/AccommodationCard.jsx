@@ -37,7 +37,7 @@ export default function AccommodationCard({
   };
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-md transition duration-300">
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl bg-white shadow-md transition duration-300">
 
       {imageUrl ? (
         <button
@@ -61,18 +61,19 @@ export default function AccommodationCard({
         </div>
       )}
 
-      <div className="p-4 text-left">
+      <div className="flex flex-1 flex-col p-4 text-center">
         <h3 className="text-lg md:text-xl font-semibold text-forest">
           {item.name}
         </h3>
 
-        <p className="text-gray-60 mt-2 text-sm">
+        <p className="mt-3 line-clamp-6 min-h-[8.25rem] text-justify text-sm leading-relaxed text-gray-700">
           {item.description}
         </p>
 
         <button
+          type="button"
           onClick={onToggle}
-          className="mt-4 text-xs md:text-sm text-white bg-wood px-4 py-2 rounded hover:bg-amber-800 transition"
+          className="mx-auto mt-auto inline-flex items-center justify-center rounded bg-wood px-4 py-2 text-xs text-white transition hover:bg-amber-800 md:text-sm"
         >
           {isActive ? "Hide Details" : "View Details"}
         </button>
