@@ -8,17 +8,12 @@ Single Express/MongoDB API for both frontends:
 ## Local Setup
 
 ```bash
-cd /Users/danawardhiana/Projects/forestCabin-booking/backend
 npm install
 cp .env.example .env
 npm run dev
 ```
 
-Base URL:
-
-```txt
-http://localhost:5001
-```
+The server prints its active port when it starts.
 
 Health check:
 
@@ -31,42 +26,42 @@ GET /api/health
 ```env
 PORT=5001
 NODE_ENV=development
-MONGODB_URI=mongodb://127.0.0.1:27017/forest-cabin-booking
-CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
-UPLOAD_BASE_URL=http://localhost:5001
-UPLOAD_PROVIDER=local
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-url>/<database>?retryWrites=true&w=majority
+CORS_ORIGIN=https://guest.example.com,https://admin.example.com
+UPLOAD_BASE_URL=https://api.example.com
+UPLOAD_PROVIDER=cloudinary
 MAX_UPLOAD_SIZE_MB=5
-CLOUDINARY_CLOUD_NAME=
-CLOUDINARY_API_KEY=
-CLOUDINARY_API_SECRET=
+CLOUDINARY_CLOUD_NAME=<cloudinary-cloud-name>
+CLOUDINARY_API_KEY=<cloudinary-api-key>
+CLOUDINARY_API_SECRET=<cloudinary-api-secret>
 CLOUDINARY_FOLDER=theforestcabin
 DATABASE_STORAGE_LIMIT_MB=512
 DATABASE_STORAGE_WARNING_PERCENT=80
-JWT_SECRET=replace-with-a-long-random-secret
+JWT_SECRET=<long-random-secret>
 JWT_EXPIRES_IN=7d
-ADMIN_SEED_EMAIL=theforestcabin.kintamani@gmail.com
-ADMIN_SEED_USERNAME=admin
-ADMIN_SEED_PASSWORD=replace-with-strong-admin-password
-ADMIN_SEED_NAME=The Forest Cabin Admin
-USER_FRONTEND_URL=http://localhost:5173
-ADMIN_FRONTEND_URL=http://localhost:5174
-ADMIN_NOTIFICATION_EMAILS=
+ADMIN_SEED_EMAIL=<admin-email@example.com>
+ADMIN_SEED_USERNAME=<admin-username>
+ADMIN_SEED_PASSWORD=<strong-admin-password>
+ADMIN_SEED_NAME=<admin-display-name>
+USER_FRONTEND_URL=https://guest.example.com
+ADMIN_FRONTEND_URL=https://admin.example.com
+ADMIN_NOTIFICATION_EMAILS=<admin-email@example.com>
 SMTP_DAILY_LIMIT=500
-SMTP_HOST=
+SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM="The Forest Cabin <reservations@theforestcabin.local>"
-SMTP_REPLY_TO=
+SMTP_USER=<smtp-username>
+SMTP_PASS=<smtp-password-or-app-password>
+SMTP_FROM="The Forest Cabin <reservations@example.com>"
+SMTP_REPLY_TO=<reply-to@example.com>
 ```
 
 Uploads use local Multer disk storage by default for development. For production on
 non-persistent platforms, set `UPLOAD_PROVIDER=cloudinary` and configure
 `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
-Payment proofs, promo images, gallery images, payment option images, and invoice
-logos will then be uploaded to Cloudinary. `UPLOAD_BASE_URL` is only needed for
-local upload URLs.
+Payment proofs, room images, promo images, gallery images, payment option
+images, and invoice logos will then be uploaded to Cloudinary. `UPLOAD_BASE_URL`
+is only needed for local upload URLs.
 
 ## Admin Auth
 
@@ -101,20 +96,20 @@ Set a strong `JWT_SECRET` in production. `ADMIN_SEED_PASSWORD` should be stored 
 
 Invoice and booking emails use SMTP through Nodemailer. If SMTP is not configured, bookings can still be approved and invoices are still generated; the invoice email status becomes `not_configured`.
 
-Gmail SMTP production example:
+SMTP production example:
 
 ```env
 SMTP_DAILY_LIMIT=500
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=theforestcabin.kintamani@gmail.com
-SMTP_PASS=GOOGLE_APP_PASSWORD
-SMTP_FROM="The Forest Cabin <theforestcabin.kintamani@gmail.com>"
-SMTP_REPLY_TO=theforestcabin.kintamani@gmail.com
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<smtp-username>
+SMTP_PASS=<smtp-password-or-app-password>
+SMTP_FROM="The Forest Cabin <reservations@example.com>"
+SMTP_REPLY_TO=<reply-to@example.com>
 ```
 
-Use a Google App Password for `SMTP_PASS`, not the normal Gmail password. `SMTP_DAILY_LIMIT` is used for admin dashboard warnings. For regular Gmail accounts, keep it at `500` unless Google changes the account limit.
+Use an app password or provider-issued SMTP credential for `SMTP_PASS`, not a personal account password. `SMTP_DAILY_LIMIT` is used for admin dashboard warnings.
 
 Set `ADMIN_NOTIFICATION_EMAILS` to one or more comma-separated admin email addresses to notify admins when a guest submits a new booking request. `ADMIN_FRONTEND_URL` is used to build the admin booking detail link in that email.
 
@@ -122,7 +117,9 @@ Set `ADMIN_NOTIFICATION_EMAILS` to one or more comma-separated admin email addre
 
 Rooms are not seeded automatically. Add real room inventory from the admin frontend Rooms page or through the `/api/rooms` API before testing availability or booking creation.
 
-Create a room with any room type:
+Create a room with any room type. Rooms support multiple photos through
+`multipart/form-data`; use the field name `images` for one or more uploaded
+files. `imageUrl` is still supported as an optional external or legacy cover URL.
 
 ```http
 POST /api/rooms
@@ -145,6 +142,10 @@ Content-Type: application/json
 ```
 
 `roomType` is dynamic. The backend normalizes it to a lowercase slug, so `Family Suite` becomes `family_suite`.
+
+For the guest frontend, `/api/rooms/types` groups all active rooms by `roomType`
+and combines their photos in room-number/upload order. This lets admin upload
+photos per physical room while guests see one room-type gallery.
 
 Get active room types for frontend filters and booking forms:
 
