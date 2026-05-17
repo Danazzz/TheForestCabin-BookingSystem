@@ -174,6 +174,79 @@ const formatPromoRule = (promo) => {
   return "No price change";
 };
 
+const isPromoEligible = (promo, { nights, roomType }) => {
+  if (!promo) {
+    return true;
+  }
+
+  const stayNights = Number(nights || 0);
+  const minNights = Number(promo.minNights || 0);
+  const maxNights = Number(promo.maxNights || 0);
+  const eligibleRoomTypes = Array.isArray(promo.eligibleRoomTypes)
+    ? promo.eligibleRoomTypes
+    : [];
+
+  if (minNights > 0 && stayNights < minNights) {
+    return false;
+  }
+
+  if (maxNights > 0 && stayNights > maxNights) {
+    return false;
+  }
+
+  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(roomType)) {
+    return false;
+  }
+
+  return true;
+};
+
+const getPromoEligibilityMessage = (promo, { nights, roomType }) => {
+  const stayNights = Number(nights || 0);
+  const minNights = Number(promo?.minNights || 0);
+  const maxNights = Number(promo?.maxNights || 0);
+  const eligibleRoomTypes = Array.isArray(promo?.eligibleRoomTypes)
+    ? promo.eligibleRoomTypes
+    : [];
+
+  if (minNights > 0 && stayNights < minNights) {
+    return `minimum ${minNights} night${minNights > 1 ? "s" : ""}`;
+  }
+
+  if (maxNights > 0 && stayNights > maxNights) {
+    return `maximum ${maxNights} night${maxNights > 1 ? "s" : ""}`;
+  }
+
+  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(roomType)) {
+    return `only for ${eligibleRoomTypes.map(formatRoomType).join(", ")}`;
+  }
+
+  return "";
+};
+
+const formatPromoRestrictions = (promo) => {
+  const rules = [];
+  const minNights = Number(promo?.minNights || 0);
+  const maxNights = Number(promo?.maxNights || 0);
+  const eligibleRoomTypes = Array.isArray(promo?.eligibleRoomTypes)
+    ? promo.eligibleRoomTypes
+    : [];
+
+  if (minNights > 0) {
+    rules.push(`min ${minNights} night${minNights > 1 ? "s" : ""}`);
+  }
+
+  if (maxNights > 0) {
+    rules.push(`max ${maxNights} night${maxNights > 1 ? "s" : ""}`);
+  }
+
+  if (eligibleRoomTypes.length > 0) {
+    rules.push(eligibleRoomTypes.map(formatRoomType).join(", "));
+  }
+
+  return rules.join(" · ");
+};
+
 const formatRoomType = (roomType) =>
   String(roomType || "")
     .split("_")
@@ -338,7 +411,12 @@ export default function BookingSection({ highlight }) {
   const adultGuests = Number(form.guests);
   const childGuests = Number(form.children);
   const subtotal = nights * (selectedRoom?.pricePerNight || 0);
-  const totalAmount = Math.max(0, Math.round(applyPromoPricing(subtotal, selectedPromo)));
+  const selectedPromoIsEligible = isPromoEligible(selectedPromo, {
+    nights,
+    roomType: selectedRoom?.type,
+  });
+  const activeSelectedPromo = selectedPromoIsEligible ? selectedPromo : null;
+  const totalAmount = Math.max(0, Math.round(applyPromoPricing(subtotal, activeSelectedPromo)));
   const calendarCells = useMemo(
     () => buildCalendarCells(calendarMonth, availabilityCalendar?.dates || []),
     [availabilityCalendar, calendarMonth]
@@ -739,7 +817,7 @@ export default function BookingSection({ highlight }) {
         numberOfGuests: adultGuests,
         numberOfChildren: childGuests,
         totalAmount,
-        promoId: selectedPromo?._id || undefined,
+        promoId: activeSelectedPromo?._id || undefined,
         source: "direct",
       });
 
@@ -1123,7 +1201,7 @@ export default function BookingSection({ highlight }) {
 
           <select
             name="promo"
-            value={form.promo}
+            value={selectedPromo && selectedPromoIsEligible ? form.promo : ""}
             onChange={handleChange}
             className="rounded border p-2"
             disabled={promosLoading}
@@ -1131,11 +1209,25 @@ export default function BookingSection({ highlight }) {
             <option value="">
               {promosLoading ? "Loading promos..." : "No Promo"}
             </option>
-            {promoOptions.map((promo) => (
-              <option key={promo._id} value={promo._id}>
-                {promo.name} ({formatPromoRule(promo)})
-              </option>
-            ))}
+            {promoOptions.map((promo) => {
+              const eligible = isPromoEligible(promo, {
+                nights,
+                roomType: selectedRoom?.type,
+              });
+              const restriction = formatPromoRestrictions(promo);
+              const reason = getPromoEligibilityMessage(promo, {
+                nights,
+                roomType: selectedRoom?.type,
+              });
+
+              return (
+                <option key={promo._id} value={promo._id} disabled={!eligible}>
+                  {promo.name} ({formatPromoRule(promo)}
+                  {restriction ? ` · ${restriction}` : ""}
+                  {!eligible && reason ? ` - ${reason}` : ""})
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -1161,9 +1253,12 @@ export default function BookingSection({ highlight }) {
               {currencyFormatter.format(totalAmount)}
             </p>
           </div>
-          {selectedPromo ? (
+          {activeSelectedPromo ? (
             <p className="mt-3 rounded bg-green-50 p-3 text-green-800">
-              Promo applied: {selectedPromo.name} · {formatPromoRule(selectedPromo)}
+              Promo applied: {activeSelectedPromo.name} · {formatPromoRule(activeSelectedPromo)}
+              {formatPromoRestrictions(activeSelectedPromo)
+                ? ` · ${formatPromoRestrictions(activeSelectedPromo)}`
+                : ""}
             </p>
           ) : null}
           <button

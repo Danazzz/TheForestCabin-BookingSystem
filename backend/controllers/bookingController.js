@@ -51,7 +51,33 @@ const applyPromoPricing = (subtotal, promo) => {
   return subtotal;
 };
 
-const getActivePromo = async (promoId) => {
+const validatePromoEligibility = (promo, { nights, roomType }) => {
+  if (!promo) {
+    return;
+  }
+
+  const stayNights = Number(nights || 0);
+  const minNights = Number(promo.minNights || 0);
+  const maxNights = Number(promo.maxNights || 0);
+  const requestedRoomType = Room.normalizeRoomType(roomType);
+  const eligibleRoomTypes = Array.isArray(promo.eligibleRoomTypes)
+    ? promo.eligibleRoomTypes.map(Room.normalizeRoomType).filter(Boolean)
+    : [];
+
+  if (minNights > 0 && stayNights < minNights) {
+    throw new AppError(`Selected promo requires at least ${minNights} night(s).`, 400);
+  }
+
+  if (maxNights > 0 && stayNights > maxNights) {
+    throw new AppError(`Selected promo applies to stays up to ${maxNights} night(s).`, 400);
+  }
+
+  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(requestedRoomType)) {
+    throw new AppError("Selected promo is not available for the selected room type.", 400);
+  }
+};
+
+const getActivePromo = async (promoId, eligibilityContext = {}) => {
   validateObjectId(promoId, "promo id");
   const promo = await Promo.findById(promoId);
 
@@ -68,6 +94,8 @@ const getActivePromo = async (promoId) => {
   if (promo.validUntil && promo.validUntil < now) {
     throw new AppError("Selected promo has expired", 400);
   }
+
+  validatePromoEligibility(promo, eligibilityContext);
 
   return promo;
 };
@@ -165,7 +193,9 @@ const createBooking = asyncHandler(async (req, res) => {
 
   const nights = getNights(startDate, endDate);
   const subtotalAmount = roomTypeProfile.basePrice * nights;
-  const promo = req.body.promoId ? await getActivePromo(req.body.promoId) : null;
+  const promo = req.body.promoId
+    ? await getActivePromo(req.body.promoId, { nights, roomType: requestedRoomType })
+    : null;
   const totalAmount = promo
     ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
     : totalAmountFromRequest ?? subtotalAmount;

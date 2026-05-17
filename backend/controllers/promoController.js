@@ -1,5 +1,6 @@
 const Promo = require("../models/Promo");
 const { adjustmentTypes } = require("../models/Promo");
+const Room = require("../models/Room");
 const asyncHandler = require("../utils/asyncHandler");
 const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
@@ -21,6 +22,47 @@ const parseBoolean = (value, defaultValue = true) => {
 
   return String(value).toLowerCase() === "true";
 };
+
+const parseNonNegativeNumber = (value, fieldName) => {
+  const number = Number(value || 0);
+
+  if (Number.isNaN(number) || number < 0) {
+    throw new AppError(`${fieldName} must be a non-negative number`, 400);
+  }
+
+  return number;
+};
+
+const parseListValue = (value) => {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(parseListValue);
+  }
+
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return [];
+  }
+
+  if (rawValue.startsWith("[") && rawValue.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(rawValue);
+      return Array.isArray(parsed) ? parsed.flatMap(parseListValue) : [];
+    } catch {
+      return rawValue.split(/\r?\n|,/);
+    }
+  }
+
+  return rawValue.split(/\r?\n|,/);
+};
+
+const normalizeEligibleRoomTypes = (value) => [
+  ...new Set(parseListValue(value).map(Room.normalizeRoomType).filter(Boolean))
+];
 
 const getUploadedImageUrl = (req) => {
   return req.uploadedFileUrl || "";
@@ -75,15 +117,27 @@ const normalizePromoPayload = (req, { partial = false } = {}) => {
   }
 
   if (body.adjustmentValue !== undefined) {
-    const adjustmentValue = Number(body.adjustmentValue || 0);
-
-    if (Number.isNaN(adjustmentValue) || adjustmentValue < 0) {
-      throw new AppError("adjustmentValue must be a non-negative number", 400);
-    }
-
-    payload.adjustmentValue = adjustmentValue;
+    payload.adjustmentValue = parseNonNegativeNumber(body.adjustmentValue, "adjustmentValue");
   } else if (!partial) {
     payload.adjustmentValue = 0;
+  }
+
+  if (body.minNights !== undefined) {
+    payload.minNights = parseNonNegativeNumber(body.minNights, "minNights");
+  } else if (!partial) {
+    payload.minNights = 0;
+  }
+
+  if (body.maxNights !== undefined) {
+    payload.maxNights = parseNonNegativeNumber(body.maxNights, "maxNights");
+  } else if (!partial) {
+    payload.maxNights = 0;
+  }
+
+  if (body.eligibleRoomTypes !== undefined) {
+    payload.eligibleRoomTypes = normalizeEligibleRoomTypes(body.eligibleRoomTypes);
+  } else if (!partial) {
+    payload.eligibleRoomTypes = [];
   }
 
   if (body.validFrom !== undefined) {
@@ -151,14 +205,13 @@ const updateAdminPromo = asyncHandler(async (req, res) => {
   validateObjectId(req.params.id, "promo id");
   const payload = normalizePromoPayload(req, { partial: true });
 
-  const promo = await Promo.findByIdAndUpdate(req.params.id, payload, {
-    new: true,
-    runValidators: true
-  });
-
+  const promo = await Promo.findById(req.params.id);
   if (!promo) {
     throw new AppError("Promo not found", 404);
   }
+
+  Object.assign(promo, payload);
+  await promo.save();
 
   sendResponse(res, 200, "Promo updated successfully", promo);
 });

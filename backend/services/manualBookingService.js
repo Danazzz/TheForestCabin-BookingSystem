@@ -55,7 +55,33 @@ const applyPromoPricing = (subtotal, promo) => {
   return subtotal;
 };
 
-const getActivePromo = async (promoId, { session } = {}) => {
+const validatePromoEligibility = (promo, { nights, roomType }) => {
+  if (!promo) {
+    return;
+  }
+
+  const stayNights = Number(nights || 0);
+  const minNights = Number(promo.minNights || 0);
+  const maxNights = Number(promo.maxNights || 0);
+  const requestedRoomType = Room.normalizeRoomType(roomType);
+  const eligibleRoomTypes = Array.isArray(promo.eligibleRoomTypes)
+    ? promo.eligibleRoomTypes.map(Room.normalizeRoomType).filter(Boolean)
+    : [];
+
+  if (minNights > 0 && stayNights < minNights) {
+    throw new AppError(`Selected promo requires at least ${minNights} night(s).`, 400);
+  }
+
+  if (maxNights > 0 && stayNights > maxNights) {
+    throw new AppError(`Selected promo applies to stays up to ${maxNights} night(s).`, 400);
+  }
+
+  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(requestedRoomType)) {
+    throw new AppError("Selected promo is not available for the selected room type.", 400);
+  }
+};
+
+const getActivePromo = async (promoId, { session, nights, roomType } = {}) => {
   if (!promoId) {
     return null;
   }
@@ -76,6 +102,8 @@ const getActivePromo = async (promoId, { session } = {}) => {
   if (promo.validUntil && promo.validUntil < now) {
     throw new AppError("Selected promo has expired", 400);
   }
+
+  validatePromoEligibility(promo, { nights, roomType });
 
   return promo;
 };
@@ -257,8 +285,11 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
       );
     }
 
-    const promo = payload.promoId ? await getActivePromo(payload.promoId, { session }) : null;
-    const subtotalAmount = room.basePrice * getNights(startDate, endDate);
+    const nights = getNights(startDate, endDate);
+    const promo = payload.promoId
+      ? await getActivePromo(payload.promoId, { session, nights, roomType: room.roomType })
+      : null;
+    const subtotalAmount = room.basePrice * nights;
     const calculatedTotal = promo
       ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
       : subtotalAmount;
