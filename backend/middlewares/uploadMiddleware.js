@@ -51,10 +51,10 @@ const buildUpload = (directory) => multer({
   }
 });
 
-const buildLocalUploadUrl = (req, subdirectory) => {
+const buildLocalUploadUrl = (req, subdirectory, file = req.file) => {
   const baseUrl = process.env.UPLOAD_BASE_URL || `${req.protocol}://${req.get("host")}`;
 
-  return `${baseUrl}/uploads/${subdirectory}/${req.file.filename}`;
+  return `${baseUrl}/uploads/${subdirectory}/${file.filename}`;
 };
 
 const attachUploadedFileUrl = async (req, { cloudinaryFolder, localSubdirectory }) => {
@@ -77,6 +77,60 @@ const attachUploadedFileUrl = async (req, { cloudinaryFolder, localSubdirectory 
 
   req.uploadedFileUrl = buildLocalUploadUrl(req, localSubdirectory);
   req.uploadedFileProvider = "local";
+};
+
+const collectUploadedFiles = (req) => {
+  if (Array.isArray(req.files)) {
+    return req.files;
+  }
+
+  if (req.files && typeof req.files === "object") {
+    return Object.values(req.files).flat();
+  }
+
+  return req.file ? [req.file] : [];
+};
+
+const attachUploadedFilesUrls = async (req, { cloudinaryFolder, localSubdirectory }) => {
+  const files = collectUploadedFiles(req);
+
+  if (!files.length) {
+    req.uploadedFiles = [];
+    return;
+  }
+
+  if (isCloudinaryEnabled()) {
+    const uploadedFiles = await Promise.all(files.map(async (file) => {
+      const result = await uploadBufferToCloudinary({
+        buffer: file.buffer,
+        folder: cloudinaryFolder,
+        originalname: file.originalname
+      });
+
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+        provider: "cloudinary",
+        originalname: file.originalname
+      };
+    }));
+
+    req.uploadedFiles = uploadedFiles;
+    req.uploadedFileUrl = uploadedFiles[0]?.url;
+    req.uploadedFileProvider = uploadedFiles[0]?.provider;
+    req.uploadedFilePublicId = uploadedFiles[0]?.publicId;
+    return;
+  }
+
+  req.uploadedFiles = files.map((file) => ({
+    url: buildLocalUploadUrl(req, localSubdirectory, file),
+    publicId: "",
+    provider: "local",
+    originalname: file.originalname
+  }));
+  req.uploadedFileUrl = req.uploadedFiles[0]?.url;
+  req.uploadedFileProvider = "local";
+  req.uploadedFilePublicId = "";
 };
 
 const runSingleImageUpload = ({
@@ -137,4 +191,28 @@ const uploadContentImage = (req, res, next) => {
   });
 };
 
-module.exports = { uploadPaymentProof, uploadContentImage };
+const uploadRoomImages = (req, res, next) => {
+  const upload = buildUpload(contentImageDir).fields([
+    { name: "image", maxCount: 1 },
+    { name: "images", maxCount: 20 }
+  ]);
+
+  upload(req, res, async (error) => {
+    if (error) {
+      next(error);
+      return;
+    }
+
+    try {
+      await attachUploadedFilesUrls(req, {
+        cloudinaryFolder: "rooms",
+        localSubdirectory: "site-content"
+      });
+      next();
+    } catch (uploadError) {
+      next(new AppError(`Failed to upload room images: ${uploadError.message}`, 500));
+    }
+  });
+};
+
+module.exports = { uploadPaymentProof, uploadContentImage, uploadRoomImages };

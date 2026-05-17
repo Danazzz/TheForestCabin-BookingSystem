@@ -13,14 +13,30 @@ export default function AccommodationList() {
     const loadAccommodations = async () => {
       try {
         const response = await roomApi.listTypes();
-        const nextItems = (response.data || []).map((item) => ({
-          id: item.roomType,
-          name: item.label || item.roomType,
-          image: sanitizeMediaUrl(item.imageUrl),
-          description: item.description,
-          details: item.details || [],
-          altText: item.altText,
-        }));
+        const nextItems = (response.data || []).map((item) => {
+          const images = (item.images || [])
+            .map((image) => ({
+              url: sanitizeMediaUrl(image.url || image.imageUrl),
+              altText: image.altText || item.altText || item.label || item.roomType,
+            }))
+            .filter((image) => image.url);
+          const fallbackImage = sanitizeMediaUrl(item.imageUrl);
+          const galleryImages = images.length > 0
+            ? images
+            : fallbackImage
+              ? [{ url: fallbackImage, altText: item.altText || item.label || item.roomType }]
+              : [];
+
+          return {
+            id: item.roomType,
+            name: item.label || item.roomType,
+            image: galleryImages[0]?.url || "",
+            images: galleryImages,
+            description: item.description,
+            details: item.details || [],
+            altText: item.altText,
+          };
+        });
 
         if (!ignore) {
           setItems(nextItems);

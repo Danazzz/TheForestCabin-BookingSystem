@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { sanitizeMediaUrl } from "../utils/security";
 
 export default function AccommodationCard({
@@ -6,17 +7,54 @@ export default function AccommodationCard({
   onToggle,
 }) {
   const details = item.details || [];
-  const imageUrl = sanitizeMediaUrl(item.image);
+  const galleryImages = (item.images || [])
+    .map((image) => ({
+      url: sanitizeMediaUrl(image.url || image.imageUrl || image),
+      altText: image.altText || item.altText || item.name,
+    }))
+    .filter((image) => image.url);
+  const imageUrl = galleryImages[0]?.url || sanitizeMediaUrl(item.image);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  const openGallery = () => {
+    if (!galleryImages.length) {
+      return;
+    }
+
+    setCurrentImageIndex(0);
+    setIsGalleryOpen(true);
+  };
+
+  const showPreviousImage = () => {
+    setCurrentImageIndex((current) => (
+      current === 0 ? galleryImages.length - 1 : current - 1
+    ));
+  };
+
+  const showNextImage = () => {
+    setCurrentImageIndex((current) => (current + 1) % galleryImages.length);
+  };
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-md transition duration-300">
 
       {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={item.altText || item.name}
-          className="h-44 md:h-48 w-full object-cover"
-        />
+        <button
+          type="button"
+          onClick={openGallery}
+          className="group block w-full overflow-hidden border-0 bg-transparent p-0 text-left"
+          aria-label={`Open ${item.name} photo gallery`}
+        >
+          <img
+            src={imageUrl}
+            alt={item.altText || item.name}
+            className="h-44 md:h-48 w-full object-cover transition duration-300 group-hover:scale-105"
+          />
+          {galleryImages.length > 1 ? (
+            <span className="absolute sr-only">{galleryImages.length} photos available</span>
+          ) : null}
+        </button>
       ) : (
         <div className="flex h-44 w-full items-center justify-center bg-cream text-sm text-gray-500 md:h-48">
           Image will be updated soon.
@@ -55,6 +93,53 @@ export default function AccommodationCard({
         </div>
 
       </div>
+
+      {isGalleryOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-8"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${item.name} photo gallery`}
+        >
+          <div className="relative flex w-full max-w-5xl flex-col items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setIsGalleryOpen(false)}
+              className="absolute right-0 top-0 rounded-full bg-white/90 px-3 py-1 text-sm font-semibold text-forest shadow"
+            >
+              Close
+            </button>
+
+            <img
+              src={galleryImages[currentImageIndex]?.url}
+              alt={galleryImages[currentImageIndex]?.altText || item.name}
+              className="max-h-[78vh] w-full rounded-2xl object-contain"
+            />
+
+            <div className="flex w-full max-w-sm items-center justify-between gap-3 text-white">
+              <button
+                type="button"
+                onClick={showPreviousImage}
+                disabled={galleryImages.length <= 1}
+                className="rounded-full border border-white/40 px-4 py-2 text-sm font-semibold disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="text-sm">
+                {currentImageIndex + 1} / {galleryImages.length}
+              </span>
+              <button
+                type="button"
+                onClick={showNextImage}
+                disabled={galleryImages.length <= 1}
+                className="rounded-full border border-white/40 px-4 py-2 text-sm font-semibold disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -8,6 +8,32 @@ const normalizeRoomType = (value) =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
+const roomImageSchema = new mongoose.Schema(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    publicId: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    altText: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 180
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  { _id: true }
+);
+
 const roomSchema = new mongoose.Schema(
   {
     roomNumber: {
@@ -59,6 +85,10 @@ const roomSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: ""
+    },
+    images: {
+      type: [roomImageSchema],
+      default: []
     },
     altText: {
       type: String,

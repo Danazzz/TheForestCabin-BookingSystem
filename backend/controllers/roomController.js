@@ -55,6 +55,80 @@ const parseRoomDetails = (value) => {
     .filter(Boolean);
 };
 
+const buildRoomImage = ({ url, publicId = "", altText = "", uploadedAt }) => ({
+  url: String(url || "").trim(),
+  publicId: String(publicId || "").trim(),
+  altText: String(altText || "").trim(),
+  uploadedAt: uploadedAt || new Date()
+});
+
+const dedupeRoomImages = (images) => {
+  const seen = new Set();
+
+  return images
+    .map(buildRoomImage)
+    .filter((image) => {
+      if (!image.url || seen.has(image.url)) {
+        return false;
+      }
+
+      seen.add(image.url);
+      return true;
+    });
+};
+
+const getRoomImages = (room) => {
+  const images = Array.isArray(room.images)
+    ? room.images.map((image) => ({
+      _id: image._id,
+      url: image.url,
+      imageUrl: image.url,
+      publicId: image.publicId || "",
+      altText: image.altText || room.altText || "",
+      uploadedAt: image.uploadedAt || room.createdAt
+    }))
+    : [];
+
+  if (room.imageUrl && !images.some((image) => image.url === room.imageUrl)) {
+    images.unshift({
+      _id: "legacy-cover",
+      url: room.imageUrl,
+      imageUrl: room.imageUrl,
+      publicId: room.imagePublicId || "",
+      altText: room.altText || "",
+      uploadedAt: room.createdAt
+    });
+  }
+
+  return images.filter((image) => image.url);
+};
+
+const getUploadedRoomImages = (req, altText = "") =>
+  (req.uploadedFiles || []).map((file) => buildRoomImage({
+    url: file.url,
+    publicId: file.publicId || "",
+    altText
+  }));
+
+const buildRoomImagesFromRequest = (req, altText = "", existingImages = []) => {
+  const manualImageUrl = String(req.body.imageUrl || "").trim();
+  const images = [...existingImages];
+
+  if (manualImageUrl) {
+    images.push(buildRoomImage({ url: manualImageUrl, altText }));
+  }
+
+  images.push(...getUploadedRoomImages(req, altText));
+
+  return dedupeRoomImages(images);
+};
+
+const syncCoverImageFields = (target, images) => {
+  target.images = images;
+  target.imageUrl = images[0]?.url || "";
+  target.imagePublicId = images[0]?.publicId || "";
+};
+
 const getRoomTypeLabel = (roomType) =>
   String(roomType || "")
     .split("_")
@@ -85,6 +159,7 @@ const listRoomTypes = asyncHandler(async (req, res) => {
 
   rooms.forEach((room) => {
     const current = typeMap.get(room.roomType);
+    const roomImages = getRoomImages(room);
 
     if (!current) {
       typeMap.set(room.roomType, {
@@ -94,8 +169,9 @@ const listRoomTypes = asyncHandler(async (req, res) => {
         childCapacity: room.childCapacity || 0,
         basePrice: room.basePrice,
         description: room.description || "",
-        imageUrl: room.imageUrl || "",
-        altText: room.altText || "",
+        imageUrl: roomImages[0]?.url || room.imageUrl || "",
+        altText: roomImages[0]?.altText || room.altText || "",
+        images: roomImages,
         details: room.details || [],
         firstRoomNumber: room.roomNumber,
         availableUnits: 1
@@ -107,8 +183,15 @@ const listRoomTypes = asyncHandler(async (req, res) => {
     current.childCapacity = Math.max(current.childCapacity, room.childCapacity || 0);
     current.basePrice = Math.min(current.basePrice, room.basePrice || current.basePrice);
     current.description = current.description || room.description || "";
-    current.imageUrl = current.imageUrl || room.imageUrl || "";
-    current.altText = current.altText || room.altText || "";
+    current.images = dedupeRoomImages([
+      ...(current.images || []),
+      ...roomImages
+    ]).map((image) => ({
+      ...image,
+      imageUrl: image.url
+    }));
+    current.imageUrl = current.images[0]?.url || current.imageUrl || "";
+    current.altText = current.images[0]?.altText || current.altText || room.altText || "";
     current.details = current.details.length > 0 ? current.details : room.details || [];
     current.firstRoomNumber = [current.firstRoomNumber, room.roomNumber].sort((left, right) =>
       String(left || "").localeCompare(String(right || ""), undefined, { numeric: true })
@@ -148,10 +231,8 @@ const createRoom = asyncHandler(async (req, res) => {
     throw new AppError("roomNumber is required", 400);
   }
 
-  if (req.uploadedFileUrl) {
-    payload.imageUrl = req.uploadedFileUrl;
-    payload.imagePublicId = req.uploadedFilePublicId || "";
-  }
+  const images = buildRoomImagesFromRequest(req, payload.altText);
+  syncCoverImageFields(payload, images);
 
   const room = await Room.create(payload);
 
@@ -204,16 +285,6 @@ const updateRoom = asyncHandler(async (req, res) => {
     updates.description = String(req.body.description || "").trim();
   }
 
-  if (req.body.imageUrl !== undefined) {
-    updates.imageUrl = String(req.body.imageUrl || "").trim();
-    updates.imagePublicId = "";
-  }
-
-  if (req.uploadedFileUrl) {
-    updates.imageUrl = req.uploadedFileUrl;
-    updates.imagePublicId = req.uploadedFilePublicId || "";
-  }
-
   if (req.body.altText !== undefined) {
     updates.altText = String(req.body.altText || "").trim();
   }
@@ -234,10 +305,15 @@ const updateRoom = asyncHandler(async (req, res) => {
     throw new AppError("Room not found", 404);
   }
 
-  if (updates.imageUrl !== undefined && !req.uploadedFileUrl) {
-    updates.imagePublicId = updates.imageUrl === existingRoom.imageUrl
-      ? existingRoom.imagePublicId
-      : "";
+  if (req.body.imageUrl !== undefined || (req.uploadedFiles || []).length) {
+    const existingImages = getRoomImages(existingRoom).map((image) => buildRoomImage(image));
+    const images = buildRoomImagesFromRequest(
+      req,
+      updates.altText ?? existingRoom.altText,
+      existingImages
+    );
+
+    syncCoverImageFields(updates, images);
   }
 
   const room = await Room.findByIdAndUpdate(req.params.id, updates, {
@@ -245,15 +321,39 @@ const updateRoom = asyncHandler(async (req, res) => {
     runValidators: true
   });
 
-  if (
-    (req.uploadedFilePublicId || (updates.imageUrl !== undefined && updates.imageUrl !== existingRoom.imageUrl)) &&
-    existingRoom.imagePublicId &&
-    existingRoom.imagePublicId !== req.uploadedFilePublicId
-  ) {
-    await deleteCloudinaryAsset(existingRoom.imagePublicId).catch(() => null);
+  sendResponse(res, 200, "Room updated successfully", room);
+});
+
+const deleteRoomImage = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "room id");
+  validateObjectId(req.params.imageId, "room image id");
+
+  const room = await Room.findById(req.params.id);
+
+  if (!room) {
+    throw new AppError("Room not found", 404);
   }
 
-  sendResponse(res, 200, "Room updated successfully", room);
+  const image = room.images.id(req.params.imageId);
+
+  if (!image) {
+    throw new AppError("Room image not found", 404);
+  }
+
+  const publicId = image.publicId;
+  image.deleteOne();
+
+  const nextCover = room.images[0];
+  room.imageUrl = nextCover?.url || "";
+  room.imagePublicId = nextCover?.publicId || "";
+
+  await room.save();
+
+  if (publicId) {
+    await deleteCloudinaryAsset(publicId).catch(() => null);
+  }
+
+  sendResponse(res, 200, "Room image deleted successfully", room);
 });
 
 const deleteRoom = asyncHandler(async (req, res) => {
@@ -303,6 +403,7 @@ module.exports = {
   createRoom,
   updateRoom,
   deleteRoom,
+  deleteRoomImage,
   getRoomAvailability,
   getRoomAvailabilityCalendar
 };
