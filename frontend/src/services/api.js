@@ -1,6 +1,13 @@
 import { encodePathSegment } from "../utils/security";
 
-const API_ROOT = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const normalizeApiRoot = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\/+$/, "");
+
+const API_ROOT = normalizeApiRoot(
+  import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://localhost:5001"
+);
 const API_BASE_URL = API_ROOT.endsWith("/api") ? API_ROOT : `${API_ROOT}/api`;
 
 const parseResponse = async (response) => {
@@ -18,12 +25,15 @@ const parseResponse = async (response) => {
 };
 
 const apiRequest = async (path, options = {}) => {
+  const headers = { ...(options.headers || {}) };
+
+  if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   return parseResponse(response);

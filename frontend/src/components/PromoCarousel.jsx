@@ -14,6 +14,7 @@ export default function PromoCarousel() {
         const response = await promoApi.listActive();
         const activePromos = (response.data || []).map((promo) => ({
           ...promo,
+          title: promo.title || promo.name || "Special offer",
           imageUrl: sanitizeMediaUrl(promo.imageUrl),
         }));
 
