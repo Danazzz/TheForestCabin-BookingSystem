@@ -213,7 +213,8 @@ const getAssignedRoomsFromBooking = (booking) => {
   const seenRoomIds = new Set();
 
   const addAssignedRoom = (room) => {
-    const roomId = toRoomIdValue(room.roomId);
+    const roomData = typeof room?.toObject === "function" ? room.toObject() : room;
+    const roomId = toRoomIdValue(roomData.roomId);
     const key = toRoomIdString(roomId);
 
     if (!key || seenRoomIds.has(key)) {
@@ -222,7 +223,7 @@ const getAssignedRoomsFromBooking = (booking) => {
 
     seenRoomIds.add(key);
     assignedRooms.push({
-      ...room,
+      ...roomData,
       roomId
     });
   };
