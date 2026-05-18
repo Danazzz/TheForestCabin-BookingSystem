@@ -13,21 +13,23 @@ const {
 const {
   assertRoomAvailable,
   assertRoomExistsAndActive,
+  findAvailableRoomsByType,
   findAvailableRoomByType
 } = require("./availabilityService");
 const { createCalendarEventForBooking } = require("./calendarService");
 const { generateInvoiceForBooking } = require("./invoiceService");
 const { sendInvoiceEmail } = require("./emailService");
+const {
+  buildPricedRoomItems,
+  buildRoomSnapshot,
+  getNights,
+  hydrateAssignedRoomSnapshots,
+  normalizeRoomItemsPayload
+} = require("./bookingRoomItemsService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
 const manualBookingStatuses = ["pending_payment", "success"];
 const manualPaymentStatuses = ["unpaid", "paid"];
-
-const getNights = (checkIn, checkOut) => {
-  const milliseconds = new Date(checkOut).getTime() - new Date(checkIn).getTime();
-
-  return Math.ceil(milliseconds / (1000 * 60 * 60 * 24));
-};
 
 const applyPromoPricing = (subtotal, promo) => {
   if (!promo || subtotal <= 0) {
@@ -55,7 +57,7 @@ const applyPromoPricing = (subtotal, promo) => {
   return subtotal;
 };
 
-const validatePromoEligibility = (promo, { nights, roomType }) => {
+const validatePromoEligibility = (promo, { nights, roomType, roomTypes, totalRooms }) => {
   if (!promo) {
     return;
   }
@@ -63,7 +65,10 @@ const validatePromoEligibility = (promo, { nights, roomType }) => {
   const stayNights = Number(nights || 0);
   const minNights = Number(promo.minNights || 0);
   const maxNights = Number(promo.maxNights || 0);
-  const requestedRoomType = Room.normalizeRoomType(roomType);
+  const minRooms = Number(promo.minRooms || 0);
+  const requestedRoomTypes = (roomTypes?.length ? roomTypes : [roomType])
+    .map(Room.normalizeRoomType)
+    .filter(Boolean);
   const eligibleRoomTypes = Array.isArray(promo.eligibleRoomTypes)
     ? promo.eligibleRoomTypes.map(Room.normalizeRoomType).filter(Boolean)
     : [];
@@ -76,12 +81,22 @@ const validatePromoEligibility = (promo, { nights, roomType }) => {
     throw new AppError(`Selected promo applies to stays up to ${maxNights} night(s).`, 400);
   }
 
-  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(requestedRoomType)) {
+  if (minRooms > 0 && Number(totalRooms || 0) < minRooms) {
+    throw new AppError(`Selected promo requires at least ${minRooms} room(s).`, 400);
+  }
+
+  if (
+    eligibleRoomTypes.length > 0 &&
+    requestedRoomTypes.some((requestedRoomType) => !eligibleRoomTypes.includes(requestedRoomType))
+  ) {
     throw new AppError("Selected promo is not available for the selected room type.", 400);
   }
 };
 
-const getActivePromo = async (promoId, { session, nights, roomType } = {}) => {
+const getActivePromo = async (
+  promoId,
+  { session, nights, roomType, roomTypes, totalRooms } = {}
+) => {
   if (!promoId) {
     return null;
   }
@@ -103,7 +118,7 @@ const getActivePromo = async (promoId, { session, nights, roomType } = {}) => {
     throw new AppError("Selected promo has expired", 400);
   }
 
-  validatePromoEligibility(promo, { nights, roomType });
+  validatePromoEligibility(promo, { nights, roomType, roomTypes, totalRooms });
 
   return promo;
 };
@@ -243,6 +258,93 @@ const resolveManualBookingSource = async (payload, { session } = {}) => {
   };
 };
 
+const validateAssignedRoomCapacity = (item, rooms) => {
+  const adultCapacity = rooms.reduce((total, room) => total + (room.capacity || 0), 0);
+  const childCapacity = rooms.reduce((total, room) => total + (room.childCapacity || 0), 0);
+
+  if ((item.adultGuests || 0) > adultCapacity) {
+    throw new AppError(
+      `Selected ${item.roomType} room(s) can host up to ${adultCapacity} adult guests`,
+      400
+    );
+  }
+
+  if ((item.childGuests || 0) > childCapacity) {
+    throw new AppError(
+      `Selected ${item.roomType} room(s) can host up to ${childCapacity} children`,
+      400
+    );
+  }
+};
+
+const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, session } = {}) => {
+  const assignedRoomIds = new Set();
+
+  for (let index = 0; index < roomItems.length; index += 1) {
+    const item = roomItems[index];
+    const explicitItem = Array.isArray(payload.roomItems) ? payload.roomItems[index] : null;
+    const explicitRoomIds = explicitItem?.assignedRoomIds || explicitItem?.roomIds || [];
+
+    if (payload.roomId && index === 0 && item.roomCount === 1 && explicitRoomIds.length === 0) {
+      const room = await assertRoomExistsAndActive(payload.roomId, { session });
+
+      if (room.roomType !== item.roomType) {
+        throw new AppError("roomId does not match selected roomType", 400);
+      }
+
+      await assertRoomAvailable({ roomId: room._id, checkIn, checkOut }, { session });
+      validateAssignedRoomCapacity(item, [room]);
+      item.assignedRooms = [buildRoomSnapshot(room)];
+      assignedRoomIds.add(String(room._id));
+      continue;
+    }
+
+    if (explicitRoomIds.length > 0) {
+      if (explicitRoomIds.length !== item.roomCount) {
+        throw new AppError(`Select exactly ${item.roomCount} room(s) for ${item.roomType}`, 400);
+      }
+
+      const snapshots = await hydrateAssignedRoomSnapshots(explicitRoomIds, { session });
+      const rooms = await Room.find({ _id: { $in: explicitRoomIds }, status: "active" })
+        .session(session || null);
+
+      for (const room of rooms) {
+        if (room.roomType !== item.roomType) {
+          throw new AppError("Selected room does not match booking room type", 400);
+        }
+
+        if (assignedRoomIds.has(String(room._id))) {
+          throw new AppError("The same room cannot be assigned twice to one booking", 400);
+        }
+
+        await assertRoomAvailable({ roomId: room._id, checkIn, checkOut }, { session });
+        assignedRoomIds.add(String(room._id));
+      }
+
+      validateAssignedRoomCapacity(item, rooms);
+      item.assignedRooms = snapshots;
+      continue;
+    }
+
+    const rooms = await findAvailableRoomsByType(
+      {
+        roomType: item.roomType,
+        checkIn,
+        checkOut,
+        count: item.roomCount,
+        excludeRoomIds: [...assignedRoomIds]
+      },
+      { session }
+    );
+
+    validateAssignedRoomCapacity(item, rooms);
+    item.assignedRooms = rooms.map(buildRoomSnapshot);
+    rooms.forEach((room) => assignedRoomIds.add(String(room._id)));
+  }
+
+  return roomItems;
+};
+
 const createManualBooking = async (payload, { approvedBy } = {}) => {
   let invoiceIdToEmail = null;
 
@@ -252,44 +354,30 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
     const paymentStatus = payload.paymentStatus || "unpaid";
     validateManualEnums({ bookingStatus, paymentStatus });
 
-    const numberOfGuests = validatePositiveNumber(
-      payload.numberOfGuests,
-      "numberOfGuests"
-    );
-    const numberOfChildren = validatePositiveNumber(
-      payload.numberOfChildren ?? 0,
-      "numberOfChildren",
-      true
-    );
-    const room = await selectManualRoom(
-      {
-        roomId: payload.roomId,
-        roomType: payload.roomType,
-        checkIn: startDate,
-        checkOut: endDate
-      },
-      { session }
-    );
-
-    if (numberOfGuests > room.capacity) {
-      throw new AppError(
-        `${room.name} ${room.roomNumber} can host up to ${room.capacity} adult guests`,
-        400
-      );
-    }
-
-    if (numberOfChildren > (room.childCapacity || 0)) {
-      throw new AppError(
-        `${room.name} ${room.roomNumber} can host up to ${room.childCapacity || 0} children`,
-        400
-      );
-    }
-
     const nights = getNights(startDate, endDate);
+    const requestedRoomItems = normalizeRoomItemsPayload(payload);
+    const pricedRoomItems = await buildPricedRoomItems(requestedRoomItems, { nights, session });
+    const assignedRoomItems = await assignManualRoomItems(pricedRoomItems, payload, {
+      checkIn: startDate,
+      checkOut: endDate,
+      session
+    });
+    const numberOfGuests = assignedRoomItems.reduce((total, item) => total + item.adultGuests, 0);
+    const numberOfChildren = assignedRoomItems.reduce((total, item) => total + item.childGuests, 0);
+    const numberOfRooms = assignedRoomItems.reduce((total, item) => total + item.roomCount, 0);
+    const firstAssignedRoom = assignedRoomItems
+      .flatMap((item) => item.assignedRooms || [])
+      .find((room) => room.roomId);
+    const primaryRoomType = assignedRoomItems[0]?.roomType;
+    const subtotalAmount = assignedRoomItems.reduce((total, item) => total + item.subtotal, 0);
     const promo = payload.promoId
-      ? await getActivePromo(payload.promoId, { session, nights, roomType: room.roomType })
+      ? await getActivePromo(payload.promoId, {
+          session,
+          nights,
+          roomTypes: assignedRoomItems.map((item) => item.roomType),
+          totalRooms: numberOfRooms
+        })
       : null;
-    const subtotalAmount = room.basePrice * nights;
     const calculatedTotal = promo
       ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
       : subtotalAmount;
@@ -305,12 +393,14 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
           guestEmail: payload.guestEmail || "",
           guestPhone: payload.guestPhone,
           propertyId: payload.propertyId || "the-forest-cabin",
-          roomId: room._id,
-          roomType: room.roomType,
+          roomId: firstAssignedRoom?.roomId || null,
+          roomType: primaryRoomType,
           checkIn: startDate,
           checkOut: endDate,
           numberOfGuests,
           numberOfChildren,
+          numberOfRooms,
+          roomItems: assignedRoomItems,
           totalAmount,
           promoId: promo?._id || null,
           promoName: promo?.name || "",
@@ -347,6 +437,7 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
       const invoice = await generateInvoiceForBooking(booking, payment, { session });
 
       booking.calendarEventId = calendarEvent._id;
+      booking.calendarEventIds = calendarEvent.calendarEventIds || [calendarEvent._id];
       booking.invoiceId = invoice._id;
       booking.paymentId = payment._id;
       invoiceIdToEmail = invoice._id;

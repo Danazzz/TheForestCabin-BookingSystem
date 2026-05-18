@@ -13,17 +13,12 @@ const {
 } = require("../utils/validators");
 const { bookingStatuses, paymentStatuses } = require("../models/Booking");
 const { cancelBooking: cancelBookingService } = require("../services/bookingCancellationService");
-const {
-  assertRoomExistsAndActive,
-  getRoomsByType
-} = require("../services/availabilityService");
 const { sendAdminBookingRequestEmail } = require("../services/emailService");
-
-const getNights = (checkIn, checkOut) => {
-  const milliseconds = new Date(checkOut).getTime() - new Date(checkIn).getTime();
-
-  return Math.ceil(milliseconds / (1000 * 60 * 60 * 24));
-};
+const {
+  buildPricedRoomItems,
+  getNights,
+  normalizeRoomItemsPayload
+} = require("../services/bookingRoomItemsService");
 
 const applyPromoPricing = (subtotal, promo) => {
   if (!promo || subtotal <= 0) {
@@ -51,7 +46,7 @@ const applyPromoPricing = (subtotal, promo) => {
   return subtotal;
 };
 
-const validatePromoEligibility = (promo, { nights, roomType }) => {
+const validatePromoEligibility = (promo, { nights, roomType, roomTypes, totalRooms }) => {
   if (!promo) {
     return;
   }
@@ -59,7 +54,10 @@ const validatePromoEligibility = (promo, { nights, roomType }) => {
   const stayNights = Number(nights || 0);
   const minNights = Number(promo.minNights || 0);
   const maxNights = Number(promo.maxNights || 0);
-  const requestedRoomType = Room.normalizeRoomType(roomType);
+  const minRooms = Number(promo.minRooms || 0);
+  const requestedRoomTypes = (roomTypes?.length ? roomTypes : [roomType])
+    .map(Room.normalizeRoomType)
+    .filter(Boolean);
   const eligibleRoomTypes = Array.isArray(promo.eligibleRoomTypes)
     ? promo.eligibleRoomTypes.map(Room.normalizeRoomType).filter(Boolean)
     : [];
@@ -72,7 +70,14 @@ const validatePromoEligibility = (promo, { nights, roomType }) => {
     throw new AppError(`Selected promo applies to stays up to ${maxNights} night(s).`, 400);
   }
 
-  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(requestedRoomType)) {
+  if (minRooms > 0 && Number(totalRooms || 0) < minRooms) {
+    throw new AppError(`Selected promo requires at least ${minRooms} room(s).`, 400);
+  }
+
+  if (
+    eligibleRoomTypes.length > 0 &&
+    requestedRoomTypes.some((requestedRoomType) => !eligibleRoomTypes.includes(requestedRoomType))
+  ) {
     throw new AppError("Selected promo is not available for the selected room type.", 400);
   }
 };
@@ -100,101 +105,34 @@ const getActivePromo = async (promoId, eligibilityContext = {}) => {
   return promo;
 };
 
-const getRoomTypeProfile = async (roomType) => {
-  const rooms = await getRoomsByType({ roomType });
-
-  if (rooms.length === 0) {
-    throw new AppError("No active room is configured for the selected room type", 400);
-  }
-
-  return rooms.reduce(
-    (profile, room) => ({
-      basePrice:
-        profile.basePrice === null
-          ? room.basePrice ?? 0
-          : Math.min(profile.basePrice, room.basePrice ?? profile.basePrice),
-      adultCapacity: Math.max(profile.adultCapacity, room.capacity || 0),
-      childCapacity: Math.max(profile.childCapacity, room.childCapacity || 0),
-      sampleRoom: profile.sampleRoom || room
-    }),
-    {
-      basePrice: null,
-      adultCapacity: 0,
-      childCapacity: 0,
-      sampleRoom: null
-    }
-  );
-};
-
 const createBooking = asyncHandler(async (req, res) => {
   requireFields(req.body, [
     "guestName",
     "guestEmail",
     "guestPhone",
-    "roomType",
     "checkIn",
     "checkOut",
-    "numberOfGuests"
   ]);
 
   const { startDate, endDate } = validateDateRange(req.body.checkIn, req.body.checkOut);
-  const numberOfGuests = validatePositiveNumber(req.body.numberOfGuests, "numberOfGuests");
-  const numberOfChildren = validatePositiveNumber(
-    req.body.numberOfChildren ?? 0,
-    "numberOfChildren",
-    true
-  );
   const totalAmountFromRequest = req.body.totalAmount !== undefined
     ? validatePositiveNumber(req.body.totalAmount, "totalAmount", true)
     : null;
   const source = "direct";
-  const requestedRoomType = Room.normalizeRoomType(req.body.roomType);
-
-  if (!requestedRoomType) {
-    throw new AppError("roomType is required", 400);
-  }
-
-  let requestedRoom = null;
-  let roomTypeProfile;
-
-  if (req.body.roomId) {
-    validateObjectId(req.body.roomId, "room id");
-    requestedRoom = await assertRoomExistsAndActive(req.body.roomId);
-
-    if (requestedRoom.roomType !== requestedRoomType) {
-      throw new AppError("roomId does not match selected roomType", 400);
-    }
-
-    roomTypeProfile = {
-      basePrice: requestedRoom.basePrice,
-      adultCapacity: requestedRoom.capacity,
-      childCapacity: requestedRoom.childCapacity || 0,
-      sampleRoom: requestedRoom
-    };
-  }
-
-  if (!roomTypeProfile) {
-    roomTypeProfile = await getRoomTypeProfile(requestedRoomType);
-  }
-
-  if (numberOfGuests > roomTypeProfile.adultCapacity) {
-    throw new AppError(
-      `Selected room type can host up to ${roomTypeProfile.adultCapacity} adult guests`,
-      400
-    );
-  }
-
-  if (numberOfChildren > roomTypeProfile.childCapacity) {
-    throw new AppError(
-      `Selected room type can host up to ${roomTypeProfile.childCapacity} children`,
-      400
-    );
-  }
-
   const nights = getNights(startDate, endDate);
-  const subtotalAmount = roomTypeProfile.basePrice * nights;
+  const requestedRoomItems = normalizeRoomItemsPayload(req.body);
+  const roomItems = await buildPricedRoomItems(requestedRoomItems, { nights });
+  const subtotalAmount = roomItems.reduce((total, item) => total + item.subtotal, 0);
+  const totalRooms = roomItems.reduce((total, item) => total + item.roomCount, 0);
+  const totalAdults = roomItems.reduce((total, item) => total + item.adultGuests, 0);
+  const totalChildren = roomItems.reduce((total, item) => total + item.childGuests, 0);
+  const primaryRoomType = roomItems[0]?.roomType;
   const promo = req.body.promoId
-    ? await getActivePromo(req.body.promoId, { nights, roomType: requestedRoomType })
+    ? await getActivePromo(req.body.promoId, {
+        nights,
+        roomTypes: roomItems.map((item) => item.roomType),
+        totalRooms
+      })
     : null;
   const totalAmount = promo
     ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
@@ -205,12 +143,14 @@ const createBooking = asyncHandler(async (req, res) => {
     guestEmail: req.body.guestEmail,
     guestPhone: req.body.guestPhone,
     propertyId: req.body.propertyId || "the-forest-cabin",
-    roomId: requestedRoom?._id || null,
-    roomType: requestedRoom?.roomType || requestedRoomType,
+    roomId: null,
+    roomType: primaryRoomType,
     checkIn: startDate,
     checkOut: endDate,
-    numberOfGuests,
-    numberOfChildren,
+    numberOfGuests: totalAdults,
+    numberOfChildren: totalChildren,
+    numberOfRooms: totalRooms,
+    roomItems,
     totalAmount,
     promoId: promo?._id || null,
     promoName: promo?.name || "",
@@ -222,7 +162,9 @@ const createBooking = asyncHandler(async (req, res) => {
     paymentStatus: "unpaid"
   });
 
-  const createdBooking = await Booking.findById(booking._id).populate("roomId");
+  const createdBooking = await Booking.findById(booking._id)
+    .populate("roomId")
+    .populate("calendarEventIds");
 
   sendAdminBookingRequestEmail(createdBooking._id).catch(() => null);
 
@@ -251,11 +193,15 @@ const getBookings = asyncHandler(async (req, res) => {
   }
 
   if (req.query.roomId) {
-    filters.roomId = req.query.roomId;
+    filters.$or = [
+      { roomId: req.query.roomId },
+      { "roomItems.assignedRooms.roomId": req.query.roomId }
+    ];
   }
 
   const bookings = await Booking.find(filters)
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .populate("paymentId")
     .populate("roomId")
@@ -269,6 +215,7 @@ const getBookingById = asyncHandler(async (req, res) => {
 
   const booking = await Booking.findById(req.params.id)
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .populate("paymentId")
     .populate("roomId");
@@ -285,6 +232,7 @@ const getBookingByCode = asyncHandler(async (req, res) => {
 
   const booking = await Booking.findOne({ bookingCode })
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .populate("paymentId")
     .populate("roomId");

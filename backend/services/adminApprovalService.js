@@ -8,6 +8,7 @@ const {
 } = require("./calendarService");
 const { generateInvoiceForBooking } = require("./invoiceService");
 const { sendInvoiceEmail } = require("./emailService");
+const { getAssignedRoomsFromBooking } = require("./bookingRoomItemsService");
 
 const sessionOption = (session) => (session ? { session } : undefined);
 const APPROVAL_UNAVAILABLE_MESSAGE =
@@ -17,6 +18,7 @@ const rejectionReasons = Booking.rejectionReasons;
 const getBookingApprovalPayload = async (bookingId, { session } = {}) => {
   const booking = await Booking.findById(bookingId)
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .session(session || null);
 
@@ -53,7 +55,7 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
       throw new AppError("Cancelled booking cannot be approved", 409);
     }
 
-    if (!booking.roomId) {
+    if (getAssignedRoomsFromBooking(booking).length === 0) {
       throw new AppError("Booking must be approved for availability before payment approval", 409);
     }
 
@@ -61,18 +63,20 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
       throw new AppError("Payment proof is required before approval", 400);
     }
 
-    await assertAvailability(
-      {
-        roomId: booking.roomId,
-        checkIn: booking.checkIn,
-        checkOut: booking.checkOut,
-        excludeBookingId: booking._id
-      },
-      {
-        session,
-        message: APPROVAL_UNAVAILABLE_MESSAGE
-      }
-    );
+    for (const assignedRoom of getAssignedRoomsFromBooking(booking)) {
+      await assertAvailability(
+        {
+          roomId: assignedRoom.roomId,
+          checkIn: booking.checkIn,
+          checkOut: booking.checkOut,
+          excludeBookingId: booking._id
+        },
+        {
+          session,
+          message: APPROVAL_UNAVAILABLE_MESSAGE
+        }
+      );
+    }
 
     payment.paymentStatus = "paid";
     payment.approvedBy = approvedBy || "system-admin";
@@ -90,6 +94,7 @@ const approvePayment = async (paymentId, { approvedBy, adminNote } = {}) => {
     booking.bookingStatus = "success";
     booking.paymentStatus = "paid";
     booking.calendarEventId = calendarEvent._id;
+    booking.calendarEventIds = calendarEvent.calendarEventIds || [calendarEvent._id];
     booking.invoiceId = invoice._id;
     booking.paymentId = payment._id;
     booking.approvedAt = new Date();

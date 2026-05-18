@@ -67,6 +67,11 @@ const promoSchema = new mongoose.Schema(
       default: 0,
       min: [0, "maxNights cannot be negative"]
     },
+    minRooms: {
+      type: Number,
+      default: 0,
+      min: [0, "minRooms cannot be negative"]
+    },
     eligibleRoomTypes: {
       type: [String],
       default: [],

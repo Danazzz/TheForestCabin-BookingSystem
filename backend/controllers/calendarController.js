@@ -6,6 +6,7 @@ const sendResponse = require("../utils/apiResponse");
 const AppError = require("../utils/AppError");
 const { requireFields, parseDate } = require("../utils/validators");
 const { checkAvailability } = require("../services/calendarService");
+const { getAssignedRoomsFromBooking } = require("../services/bookingRoomItemsService");
 
 const applyDateWindow = (query, { startDate, endDate }) => {
   if (startDate && endDate) {
@@ -142,10 +143,13 @@ const getCalendarGrid = asyncHandler(async (req, res) => {
   const roomIds = rooms.map((room) => room._id);
 
   const bookings = await Booking.find({
-    roomId: { $in: roomIds },
     bookingStatus: { $in: statusOrder },
     checkIn: { $lt: addDays(endDate, 1) },
-    checkOut: { $gt: startDate }
+    checkOut: { $gt: startDate },
+    $or: [
+      { roomId: { $in: roomIds } },
+      { "roomItems.assignedRooms.roomId": { $in: roomIds } }
+    ]
   })
     .populate("roomId")
     .sort({ checkIn: 1, createdAt: 1 });
@@ -153,26 +157,28 @@ const getCalendarGrid = asyncHandler(async (req, res) => {
   const bookingsByRoom = new Map();
 
   bookings.forEach((booking) => {
-    const key = String(booking.roomId?._id || booking.roomId);
+    getAssignedRoomsFromBooking(booking).forEach((assignedRoom) => {
+      const key = String(assignedRoom.roomId?._id || assignedRoom.roomId);
 
-    if (!bookingsByRoom.has(key)) {
-      bookingsByRoom.set(key, []);
-    }
+      if (!bookingsByRoom.has(key)) {
+        bookingsByRoom.set(key, []);
+      }
 
-    bookingsByRoom.get(key).push({
-      bookingId: booking._id,
-      bookingCode: booking.bookingCode,
-      guestName: booking.guestName,
-      roomNumber: booking.roomId?.roomNumber,
-      roomType: booking.roomType,
-      checkIn: toDateOnly(booking.checkIn),
-      checkOut: toDateOnly(booking.checkOut),
-      status: booking.bookingStatus,
-      paymentStatus: booking.paymentStatus,
-      source: booking.source,
-      sourceName: booking.sourceName || "",
-      startDate: toDateOnly(booking.checkIn),
-      endDate: toDateOnly(booking.checkOut)
+      bookingsByRoom.get(key).push({
+        bookingId: booking._id,
+        bookingCode: booking.bookingCode,
+        guestName: booking.guestName,
+        roomNumber: assignedRoom.roomNumber || booking.roomId?.roomNumber,
+        roomType: assignedRoom.roomType || booking.roomType,
+        checkIn: toDateOnly(booking.checkIn),
+        checkOut: toDateOnly(booking.checkOut),
+        status: booking.bookingStatus,
+        paymentStatus: booking.paymentStatus,
+        source: booking.source,
+        sourceName: booking.sourceName || "",
+        startDate: toDateOnly(booking.checkIn),
+        endDate: toDateOnly(booking.checkOut)
+      });
     });
   });
 

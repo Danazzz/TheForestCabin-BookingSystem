@@ -58,6 +58,7 @@ const getWaitingApprovalBookings = asyncHandler(async (req, res) => {
     .populate("roomId")
     .populate("paymentId")
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .sort({ updatedAt: -1 });
 
@@ -78,7 +79,11 @@ const getAdminBookings = asyncHandler(async (req, res) => {
   }
 
   if (req.query.roomType && req.query.roomType !== "all") {
-    filters.roomType = Room.normalizeRoomType(req.query.roomType);
+    const roomType = Room.normalizeRoomType(req.query.roomType);
+    filters.$or = [
+      { roomType },
+      { "roomItems.roomType": roomType }
+    ];
   }
 
   if (req.query.source && req.query.source !== "all") {
@@ -90,6 +95,7 @@ const getAdminBookings = asyncHandler(async (req, res) => {
     .populate("paymentId")
     .populate("invoiceId")
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .sort({ createdAt: -1 });
 
   const data = await attachLatestPayments(bookings);
@@ -118,6 +124,7 @@ const getAdminBookingDetail = asyncHandler(async (req, res) => {
 
   const booking = await Booking.findById(req.params.id)
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .populate("paymentId")
     .populate("roomId");
@@ -137,6 +144,7 @@ const getAdminBookingDetail = asyncHandler(async (req, res) => {
 const getPopulatedBooking = (bookingId) =>
   Booking.findById(bookingId)
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .populate("paymentId")
     .populate("roomId");
@@ -207,6 +215,7 @@ const approveBookingAvailability = asyncHandler(async (req, res) => {
 
   const data = await approveAvailabilityService(req.params.id, {
     roomId: req.body?.roomId,
+    roomItems: req.body?.roomItems,
     adminNote: req.body?.adminNote,
     approvedBy: req.user?.id || req.body?.approvedBy
   });

@@ -134,6 +134,12 @@ const normalizePromoPayload = (req, { partial = false } = {}) => {
     payload.maxNights = 0;
   }
 
+  if (body.minRooms !== undefined) {
+    payload.minRooms = parseNonNegativeNumber(body.minRooms, "minRooms");
+  } else if (!partial) {
+    payload.minRooms = 0;
+  }
+
   if (body.eligibleRoomTypes !== undefined) {
     payload.eligibleRoomTypes = normalizeEligibleRoomTypes(body.eligibleRoomTypes);
   } else if (!partial) {
