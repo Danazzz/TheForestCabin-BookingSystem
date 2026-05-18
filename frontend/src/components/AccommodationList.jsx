@@ -4,7 +4,6 @@ import { roomApi } from "../services/api";
 import { sanitizeMediaUrl } from "../utils/security";
 
 export default function AccommodationList() {
-  const [activeIndex, setActiveIndex] = useState(null);
   const [items, setItems] = useState([]);
 
   useEffect(() => {
@@ -35,6 +34,9 @@ export default function AccommodationList() {
             description: item.description,
             details: item.details || [],
             altText: item.altText,
+            adultCapacity: item.adultCapacity,
+            childCapacity: item.childCapacity,
+            availableUnits: item.availableUnits,
           };
         });
 
@@ -64,18 +66,12 @@ export default function AccommodationList() {
 
       <div className="mx-auto flex max-w-6xl flex-wrap items-stretch justify-center gap-6">
 
-        {items.map((item, index) => (
+        {items.map((item) => (
           <div
             key={item.id}
             className="flex w-full max-w-[420px] sm:basis-[calc((100%-1.5rem)/2)] md:max-w-none md:basis-[calc((100%-3rem)/3)]"
           >
-            <AccommodationCard
-              item={item}
-              isActive={activeIndex === index}
-              onToggle={() =>
-                setActiveIndex(activeIndex === index ? null : index)
-              }
-            />
+            <AccommodationCard item={item} />
           </div>
         ))}
 
