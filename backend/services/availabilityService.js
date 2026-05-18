@@ -2,6 +2,7 @@ const Booking = require("../models/Booking");
 const Room = require("../models/Room");
 const AppError = require("../utils/AppError");
 const { parseDate, validateDateRange } = require("../utils/validators");
+const { getAssignedRoomsFromBooking } = require("./bookingRoomItemsService");
 
 const sessionOption = (session) => (session ? { session } : {});
 
@@ -12,10 +13,13 @@ const getSuccessfulOverlapQuery = ({
   excludeBookingId
 }) => {
   const query = {
-    roomId,
     bookingStatus: "success",
     checkIn: { $lt: checkOut },
-    checkOut: { $gt: checkIn }
+    checkOut: { $gt: checkIn },
+    $or: [
+      { roomId },
+      { "roomItems.assignedRooms.roomId": roomId }
+    ]
   };
 
   if (excludeBookingId) {
@@ -23,6 +27,20 @@ const getSuccessfulOverlapQuery = ({
   }
 
   return query;
+};
+
+const getRoomIdsFromBookings = (bookings) => {
+  const roomIds = new Set();
+
+  bookings.forEach((booking) => {
+    getAssignedRoomsFromBooking(booking).forEach((room) => {
+      if (room.roomId) {
+        roomIds.add(String(room.roomId?._id || room.roomId));
+      }
+    });
+  });
+
+  return roomIds;
 };
 
 const getConflictingSuccessfulBookings = async (
@@ -101,21 +119,33 @@ const getRoomsByType = async ({ roomType, includeInactive = false } = {}) => {
   return Room.find(query).sort({ roomType: 1, roomNumber: 1 });
 };
 
-const getAvailabilityByRoomType = async ({ roomType, checkIn, checkOut }) => {
+const getAvailabilityByRoomType = async (
+  { roomType, checkIn, checkOut, excludeBookingId },
+  { session } = {}
+) => {
   const { startDate, endDate } = validateDateRange(checkIn, checkOut);
   const rooms = await getRoomsByType({ roomType });
   const roomIds = rooms.map((room) => room._id);
 
-  const blockingBookings = await Booking.find({
-    roomId: { $in: roomIds },
+  const blockingQuery = {
     bookingStatus: "success",
     checkIn: { $lt: endDate },
-    checkOut: { $gt: startDate }
-  }).select("roomId bookingCode guestName checkIn checkOut bookingStatus");
+    checkOut: { $gt: startDate },
+    $or: [
+      { roomId: { $in: roomIds } },
+      { "roomItems.assignedRooms.roomId": { $in: roomIds } }
+    ]
+  };
 
-  const blockedRoomIds = new Set(
-    blockingBookings.map((booking) => String(booking.roomId))
-  );
+  if (excludeBookingId) {
+    blockingQuery._id = { $ne: excludeBookingId };
+  }
+
+  const blockingBookings = await Booking.find(blockingQuery)
+    .select("roomId roomItems bookingCode guestName checkIn checkOut bookingStatus")
+    .session(session || null);
+
+  const blockedRoomIds = getRoomIdsFromBookings(blockingBookings);
 
   const availableRooms = rooms.filter((room) => !blockedRoomIds.has(String(room._id)));
   const unavailableRooms = rooms.filter((room) => blockedRoomIds.has(String(room._id)));
@@ -134,23 +164,45 @@ const getAvailabilityByRoomType = async ({ roomType, checkIn, checkOut }) => {
   };
 };
 
-const findAvailableRoomByType = async ({ roomType, checkIn, checkOut }) => {
+const findAvailableRoomsByType = async (
+  { roomType, checkIn, checkOut, count = 1, excludeRoomIds = [], excludeBookingId },
+  { session } = {}
+) => {
   const normalizedRoomType = Room.normalizeRoomType(roomType);
-  const availability = await getAvailabilityByRoomType({
-    roomType: normalizedRoomType,
-    checkIn,
-    checkOut
-  });
-
-  if (!availability.available) {
-    throw new AppError("No room is available for the selected room type and dates", 409, {
+  const availability = await getAvailabilityByRoomType(
+    {
       roomType: normalizedRoomType,
       checkIn,
-      checkOut
+      checkOut,
+      excludeBookingId
+    },
+    { session }
+  );
+  const excluded = new Set(excludeRoomIds.map(String));
+  const availableRooms = availability.availableRooms.filter(
+    (room) => !excluded.has(String(room._id))
+  );
+
+  if (availableRooms.length < count) {
+    throw new AppError("Not enough rooms are available for the selected room type and dates", 409, {
+      roomType: normalizedRoomType,
+      checkIn,
+      checkOut,
+      requestedCount: count,
+      availableCount: availableRooms.length
     });
   }
 
-  return availability.availableRooms[0];
+  return availableRooms.slice(0, count);
+};
+
+const findAvailableRoomByType = async (payload, options = {}) => {
+  const rooms = await findAvailableRoomsByType(
+    { ...payload, count: 1 },
+    options
+  );
+
+  return rooms[0];
 };
 
 const startOfUtcDay = (value, fieldName) => {
@@ -188,11 +240,14 @@ const getAvailabilityCalendarByRoomType = async ({ roomType, startDate, endDate 
   const rangeEndExclusive = addDays(calendarEnd, 1);
 
   const blockingBookings = await Booking.find({
-    roomId: { $in: roomIds },
     bookingStatus: "success",
     checkIn: { $lt: rangeEndExclusive },
-    checkOut: { $gt: calendarStart }
-  }).select("roomId bookingCode guestName checkIn checkOut bookingStatus");
+    checkOut: { $gt: calendarStart },
+    $or: [
+      { roomId: { $in: roomIds } },
+      { "roomItems.assignedRooms.roomId": { $in: roomIds } }
+    ]
+  }).select("roomId roomItems bookingCode guestName checkIn checkOut bookingStatus");
 
   const dates = [];
   let cursor = new Date(calendarStart);
@@ -204,7 +259,9 @@ const getAvailabilityCalendarByRoomType = async ({ roomType, startDate, endDate 
 
     blockingBookings.forEach((booking) => {
       if (booking.checkIn < dayEnd && booking.checkOut > dayStart) {
-        blockedRoomIds.add(String(booking.roomId));
+        getAssignedRoomsFromBooking(booking).forEach((room) => {
+          blockedRoomIds.add(String(room.roomId?._id || room.roomId));
+        });
       }
     });
 
@@ -249,6 +306,7 @@ module.exports = {
   getRoomsByType,
   getAvailabilityByRoomType,
   getAvailabilityCalendarByRoomType,
+  findAvailableRoomsByType,
   findAvailableRoomByType,
   assertRoomExistsAndActive,
   sessionOption

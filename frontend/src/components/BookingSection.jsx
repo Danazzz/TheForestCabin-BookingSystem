@@ -14,6 +14,13 @@ const PROPERTY_ID = "forest-cabin-main";
 const WHATSAPP_NUMBER = "6281511671818";
 const WHATSAPP_FALLBACK_MESSAGE =
   "Halo The Forest Cabin, saya ingin konfirmasi booking karena email notifikasi belum saya terima.";
+const createRoomItem = (roomType = "") => ({
+  id: `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  roomType,
+  roomCount: 1,
+  adultGuests: 2,
+  childGuests: 0,
+});
 
 const paymentMethodLabels = {
   manual_transfer: "Transfer Rekening",
@@ -174,7 +181,7 @@ const formatPromoRule = (promo) => {
   return "No price change";
 };
 
-const isPromoEligible = (promo, { nights, roomType }) => {
+const isPromoEligible = (promo, { nights, roomType, roomTypes = [], totalRooms = 1 }) => {
   if (!promo) {
     return true;
   }
@@ -182,6 +189,8 @@ const isPromoEligible = (promo, { nights, roomType }) => {
   const stayNights = Number(nights || 0);
   const minNights = Number(promo.minNights || 0);
   const maxNights = Number(promo.maxNights || 0);
+  const minRooms = Number(promo.minRooms || 0);
+  const requestedRoomTypes = roomTypes.length ? roomTypes : [roomType];
   const eligibleRoomTypes = Array.isArray(promo.eligibleRoomTypes)
     ? promo.eligibleRoomTypes
     : [];
@@ -194,17 +203,26 @@ const isPromoEligible = (promo, { nights, roomType }) => {
     return false;
   }
 
-  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(roomType)) {
+  if (minRooms > 0 && Number(totalRooms || 0) < minRooms) {
+    return false;
+  }
+
+  if (
+    eligibleRoomTypes.length > 0 &&
+    requestedRoomTypes.some((requestedRoomType) => !eligibleRoomTypes.includes(requestedRoomType))
+  ) {
     return false;
   }
 
   return true;
 };
 
-const getPromoEligibilityMessage = (promo, { nights, roomType }) => {
+const getPromoEligibilityMessage = (promo, { nights, roomType, roomTypes = [], totalRooms = 1 }) => {
   const stayNights = Number(nights || 0);
   const minNights = Number(promo?.minNights || 0);
   const maxNights = Number(promo?.maxNights || 0);
+  const minRooms = Number(promo?.minRooms || 0);
+  const requestedRoomTypes = roomTypes.length ? roomTypes : [roomType];
   const eligibleRoomTypes = Array.isArray(promo?.eligibleRoomTypes)
     ? promo.eligibleRoomTypes
     : [];
@@ -217,7 +235,14 @@ const getPromoEligibilityMessage = (promo, { nights, roomType }) => {
     return `maximum ${maxNights} night${maxNights > 1 ? "s" : ""}`;
   }
 
-  if (eligibleRoomTypes.length > 0 && !eligibleRoomTypes.includes(roomType)) {
+  if (minRooms > 0 && Number(totalRooms || 0) < minRooms) {
+    return `minimum ${minRooms} room${minRooms > 1 ? "s" : ""}`;
+  }
+
+  if (
+    eligibleRoomTypes.length > 0 &&
+    requestedRoomTypes.some((requestedRoomType) => !eligibleRoomTypes.includes(requestedRoomType))
+  ) {
     return `only for ${eligibleRoomTypes.map(formatRoomType).join(", ")}`;
   }
 
@@ -228,6 +253,7 @@ const formatPromoRestrictions = (promo) => {
   const rules = [];
   const minNights = Number(promo?.minNights || 0);
   const maxNights = Number(promo?.maxNights || 0);
+  const minRooms = Number(promo?.minRooms || 0);
   const eligibleRoomTypes = Array.isArray(promo?.eligibleRoomTypes)
     ? promo.eligibleRoomTypes
     : [];
@@ -238,6 +264,10 @@ const formatPromoRestrictions = (promo) => {
 
   if (maxNights > 0) {
     rules.push(`max ${maxNights} night${maxNights > 1 ? "s" : ""}`);
+  }
+
+  if (minRooms > 0) {
+    rules.push(`min ${minRooms} room${minRooms > 1 ? "s" : ""}`);
   }
 
   if (eligibleRoomTypes.length > 0) {
@@ -363,12 +393,11 @@ export default function BookingSection({ highlight }) {
     guestPhone: "",
     checkIn: "",
     checkOut: "",
-    guests: 2,
-    children: 0,
     roomType: "",
     promo: "",
     paymentOptionId: "",
   });
+  const [roomItems, setRoomItems] = useState([createRoomItem()]);
   const [roomOptions, setRoomOptions] = useState([]);
   const [promoOptions, setPromoOptions] = useState([]);
   const [paymentOptions, setPaymentOptions] = useState([]);
@@ -408,12 +437,33 @@ export default function BookingSection({ highlight }) {
   );
 
   const nights = getNights(form.checkIn, form.checkOut);
-  const adultGuests = Number(form.guests);
-  const childGuests = Number(form.children);
-  const subtotal = nights * (selectedRoom?.pricePerNight || 0);
+  const pricedRoomItems = useMemo(
+    () =>
+      roomItems.map((item) => {
+        const room = roomOptions.find((roomOption) => roomOption.type === item.roomType);
+        const roomCount = Math.max(1, Number(item.roomCount || 1));
+
+        return {
+          ...item,
+          room,
+          roomCount,
+          adultGuests: Math.max(0, Number(item.adultGuests || 0)),
+          childGuests: Math.max(0, Number(item.childGuests || 0)),
+          subtotal: nights * (room?.pricePerNight || 0) * roomCount,
+        };
+      }),
+    [nights, roomItems, roomOptions]
+  );
+  const adultGuests = pricedRoomItems.reduce((total, item) => total + item.adultGuests, 0);
+  const childGuests = pricedRoomItems.reduce((total, item) => total + item.childGuests, 0);
+  const totalRooms = pricedRoomItems.reduce((total, item) => total + item.roomCount, 0);
+  const bookingRoomTypes = pricedRoomItems.map((item) => item.roomType).filter(Boolean);
+  const subtotal = pricedRoomItems.reduce((total, item) => total + item.subtotal, 0);
   const selectedPromoIsEligible = isPromoEligible(selectedPromo, {
     nights,
     roomType: selectedRoom?.type,
+    roomTypes: bookingRoomTypes,
+    totalRooms,
   });
   const activeSelectedPromo = selectedPromoIsEligible ? selectedPromo : null;
   const totalAmount = Math.max(0, Math.round(applyPromoPricing(subtotal, activeSelectedPromo)));
@@ -441,6 +491,12 @@ export default function BookingSection({ highlight }) {
 
         if (!ignore) {
           setRoomOptions(options);
+          setRoomItems((previous) =>
+            previous.map((item, index) => ({
+              ...item,
+              roomType: item.roomType || (index === 0 ? options[0]?.type || "" : "")
+            }))
+          );
           setForm((previous) => ({
             ...previous,
             roomType: previous.roomType || options[0]?.type || "",
@@ -580,6 +636,37 @@ export default function BookingSection({ highlight }) {
     }
   };
 
+  const handleRoomItemChange = (id, field, value) => {
+    setRoomItems((previous) =>
+      previous.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]: ["roomCount", "adultGuests", "childGuests"].includes(field)
+                ? Math.max(field === "roomCount" ? 1 : 0, Number(value || 0))
+                : value,
+            }
+          : item
+      )
+    );
+    setAvailabilityResult(null);
+  };
+
+  const addRoomItem = () => {
+    setRoomItems((previous) => [
+      ...previous,
+      createRoomItem(roomOptions[0]?.type || ""),
+    ]);
+    setAvailabilityResult(null);
+  };
+
+  const removeRoomItem = (id) => {
+    setRoomItems((previous) =>
+      previous.length === 1 ? previous : previous.filter((item) => item.id !== id)
+    );
+    setAvailabilityResult(null);
+  };
+
   const handleProofFileChange = (event) => {
     const file = event.target.files?.[0] || null;
     const validationError = file ? validatePaymentProofFile(file) : "";
@@ -645,12 +732,22 @@ export default function BookingSection({ highlight }) {
       return "Please enter at least one adult guest.";
     }
 
-    if (adultGuests > selectedRoom.capacity) {
-      return `${selectedRoom.roomType} can host up to ${selectedRoom.capacity} adult guests.`;
-    }
+    for (const item of pricedRoomItems) {
+      if (!item.room) {
+        return "Please select a valid room type.";
+      }
 
-    if (childGuests > selectedRoom.childCapacity) {
-      return `${selectedRoom.roomType} can host up to ${selectedRoom.childCapacity} children.`;
+      if (item.roomCount <= 0) {
+        return "Please select at least one room.";
+      }
+
+      if (item.adultGuests > item.room.capacity * item.roomCount) {
+        return `${item.room.roomType} can host up to ${item.room.capacity * item.roomCount} adult guests for ${item.roomCount} room(s).`;
+      }
+
+      if (item.childGuests > item.room.childCapacity * item.roomCount) {
+        return `${item.room.roomType} can host up to ${item.room.childCapacity * item.roomCount} children for ${item.roomCount} room(s).`;
+      }
     }
 
     return "";
@@ -776,13 +873,36 @@ export default function BookingSection({ highlight }) {
     setCheckingAvailability(true);
 
     try {
-      const response = await roomApi.checkAvailability({
-        roomType: selectedRoom.type,
-        checkIn: form.checkIn,
-        checkOut: form.checkOut,
+      const requestedByType = new Map();
+
+      pricedRoomItems.forEach((item) => {
+        requestedByType.set(
+          item.roomType,
+          (requestedByType.get(item.roomType) || 0) + item.roomCount
+        );
       });
 
-      setAvailabilityResult(response.data);
+      const checks = await Promise.all(
+        Array.from(requestedByType.entries()).map(async ([roomType, requestedCount]) => {
+          const response = await roomApi.checkAvailability({
+            roomType,
+            checkIn: form.checkIn,
+            checkOut: form.checkOut,
+          });
+
+          return {
+            ...response.data,
+            roomType,
+            requestedCount,
+            available: response.data.availableCount >= requestedCount,
+          };
+        })
+      );
+
+      setAvailabilityResult({
+        available: checks.every((check) => check.available),
+        checks,
+      });
     } catch (availabilityError) {
       setError(normalizeError(availabilityError));
     } finally {
@@ -811,11 +931,18 @@ export default function BookingSection({ highlight }) {
         guestEmail: form.guestEmail,
         guestPhone: form.guestPhone,
         propertyId: PROPERTY_ID,
-        roomType: selectedRoom.type,
+        roomType: pricedRoomItems[0]?.roomType || selectedRoom.type,
+        roomItems: pricedRoomItems.map((item) => ({
+          roomType: item.roomType,
+          roomCount: item.roomCount,
+          adultGuests: item.adultGuests,
+          childGuests: item.childGuests,
+        })),
         checkIn: form.checkIn,
         checkOut: form.checkOut,
         numberOfGuests: adultGuests,
         numberOfChildren: childGuests,
+        numberOfRooms: totalRooms,
         totalAmount,
         promoId: activeSelectedPromo?._id || undefined,
         source: "direct",
@@ -1159,51 +1286,78 @@ export default function BookingSection({ highlight }) {
           />
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <input
-            type="number"
-            name="guests"
-            min="1"
-            value={form.guests}
-            onChange={handleChange}
-            className="rounded border p-2"
-            placeholder="Adults"
-          />
-
-          <input
-            type="number"
-            name="children"
-            min="0"
-            value={form.children}
-            onChange={handleChange}
-            className="rounded border p-2"
-            placeholder="Kids"
-          />
-
-          <select
-            name="roomType"
-            value={form.roomType}
-            onChange={handleChange}
-            className="rounded border p-2"
-            disabled={roomsLoading || roomOptions.length === 0}
-          >
-            {roomOptions.length === 0 ? (
-              <option value="">
-                {roomsLoading ? "Loading room types..." : "No room types available"}
-              </option>
-            ) : null}
-            {roomOptions.map((room) => (
-              <option key={room.type} value={room.type}>
-                {room.roomType}
-              </option>
-            ))}
-          </select>
-
+        <div className="mt-4 space-y-3 rounded border bg-white p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-forest">Rooms</p>
+            <button
+              type="button"
+              onClick={addRoomItem}
+              className="rounded border border-forest px-3 py-1 text-sm font-semibold text-forest transition hover:bg-forest hover:text-white"
+            >
+              Add room type
+            </button>
+          </div>
+          {roomItems.map((item, index) => (
+            <div key={item.id} className="grid gap-3 rounded border border-green-100 bg-cream p-3 md:grid-cols-5">
+              <select
+                value={item.roomType}
+                onChange={(event) => handleRoomItemChange(item.id, "roomType", event.target.value)}
+                className="rounded border p-2 md:col-span-2"
+                disabled={roomsLoading || roomOptions.length === 0}
+                aria-label={`Room type ${index + 1}`}
+              >
+                {roomOptions.length === 0 ? (
+                  <option value="">
+                    {roomsLoading ? "Loading room types..." : "No room types available"}
+                  </option>
+                ) : null}
+                {roomOptions.map((room) => (
+                  <option key={room.type} value={room.type}>
+                    {room.roomType}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                value={item.roomCount}
+                onChange={(event) => handleRoomItemChange(item.id, "roomCount", event.target.value)}
+                className="rounded border p-2"
+                placeholder="Rooms"
+              />
+              <input
+                type="number"
+                min="0"
+                value={item.adultGuests}
+                onChange={(event) => handleRoomItemChange(item.id, "adultGuests", event.target.value)}
+                className="rounded border p-2"
+                placeholder="Adults"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={item.childGuests}
+                  onChange={(event) => handleRoomItemChange(item.id, "childGuests", event.target.value)}
+                  className="min-w-0 flex-1 rounded border p-2"
+                  placeholder="Kids"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeRoomItem(item.id)}
+                  disabled={roomItems.length === 1}
+                  className="rounded border border-gray-300 px-3 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
           <select
             name="promo"
             value={selectedPromo && selectedPromoIsEligible ? form.promo : ""}
             onChange={handleChange}
-            className="rounded border p-2"
+            className="w-full rounded border p-2"
             disabled={promosLoading}
           >
             <option value="">
@@ -1213,11 +1367,15 @@ export default function BookingSection({ highlight }) {
               const eligible = isPromoEligible(promo, {
                 nights,
                 roomType: selectedRoom?.type,
+                roomTypes: bookingRoomTypes,
+                totalRooms,
               });
               const restriction = formatPromoRestrictions(promo);
               const reason = getPromoEligibilityMessage(promo, {
                 nights,
                 roomType: selectedRoom?.type,
+                roomTypes: bookingRoomTypes,
+                totalRooms,
               });
 
               return (
@@ -1234,16 +1392,16 @@ export default function BookingSection({ highlight }) {
         <div className="mt-4 rounded border bg-white p-4 text-sm text-gray-700">
           <div className="grid gap-2 md:grid-cols-4">
             <p>
-              <span className="font-semibold text-forest">Room:</span>{" "}
-              {selectedRoom?.roomType || "-"}
+              <span className="font-semibold text-forest">Rooms:</span>{" "}
+              {totalRooms}
             </p>
             <p>
               <span className="font-semibold text-forest">Adults:</span>{" "}
-              {selectedRoom?.capacity ?? "-"}
+              {adultGuests}
             </p>
             <p>
               <span className="font-semibold text-forest">Children:</span>{" "}
-              {selectedRoom?.childCapacity ?? "-"}
+              {childGuests}
             </p>
             <p>
               <span className="font-semibold text-forest">Nights:</span> {nights}
@@ -1252,6 +1410,14 @@ export default function BookingSection({ highlight }) {
               <span className="font-semibold text-forest">Total:</span>{" "}
               {currencyFormatter.format(totalAmount)}
             </p>
+          </div>
+          <div className="mt-3 space-y-1 text-xs text-gray-600">
+            {pricedRoomItems.map((item) => (
+              <p key={item.id}>
+                {item.roomCount}x {item.room?.roomType || formatRoomType(item.roomType)} ·{" "}
+                {currencyFormatter.format(item.subtotal)}
+              </p>
+            ))}
           </div>
           {activeSelectedPromo ? (
             <p className="mt-3 rounded bg-green-50 p-3 text-green-800">
@@ -1271,9 +1437,16 @@ export default function BookingSection({ highlight }) {
           </button>
           {availabilityResult ? (
             <p className="mt-3 rounded bg-cream p-3">
-              {availabilityResult.available
-                ? `${availabilityResult.availableCount} ${(selectedRoom?.roomType || "room").toLowerCase()} unit(s) available for these dates.`
-                : `No ${(selectedRoom?.roomType || "room").toLowerCase()} units available for these dates.`}
+              {availabilityResult.available ? "All selected rooms are available for these dates." : "Some selected rooms are not available for these dates."}
+              {availabilityResult.checks?.length ? (
+                <span className="mt-2 block">
+                  {availabilityResult.checks.map((check) => (
+                    <span key={check.roomType} className="block">
+                      {formatRoomType(check.roomType)}: requested {check.requestedCount}, available {check.availableCount}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
             </p>
           ) : null}
         </div>

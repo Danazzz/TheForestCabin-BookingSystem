@@ -11,6 +11,7 @@ const cancellationReasons = Booking.rejectionReasons;
 const getCancellationPayload = async (bookingId, { session } = {}) => {
   const booking = await Booking.findById(bookingId)
     .populate("calendarEventId")
+    .populate("calendarEventIds")
     .populate("invoiceId")
     .populate("paymentId")
     .populate("roomId")

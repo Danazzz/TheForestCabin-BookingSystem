@@ -6,6 +6,7 @@ const {
   buildInvoiceSettingsSnapshot,
   renderTemplate
 } = require("./invoiceSettingsService");
+const { getAssignedRoomsFromBooking, getRoomItemsFromBooking } = require("./bookingRoomItemsService");
 
 const currencyFormatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
@@ -42,6 +43,29 @@ const escapeHtml = (value) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+
+const buildBookingRoomLabel = (booking) => {
+  const assignedRooms = getAssignedRoomsFromBooking(booking);
+
+  if (assignedRooms.length > 0) {
+    return assignedRooms
+      .map((room) => `${room.roomNumber || ""} ${room.name || room.roomType || ""}`.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  const roomItems = getRoomItemsFromBooking(booking);
+
+  if (roomItems.length > 0) {
+    return roomItems
+      .map((item) => `${item.roomCount || 1}x ${item.roomType}`)
+      .join(", ");
+  }
+
+  return booking.roomId
+    ? `${booking.roomId.roomNumber} · ${booking.roomId.name || booking.roomType}`
+    : booking.roomType;
+};
 
 const SMTP_DAILY_LIMIT_WARNING_CODE = "SMTP_DAILY_LIMIT_REACHED";
 const DEFAULT_SMTP_DAILY_LIMIT = 500;
@@ -364,9 +388,7 @@ const buildAdminBookingRequestEmailHtml = (booking, settings) => {
   const primaryColor = settings.primaryColor || "#174f37";
   const accentColor = settings.accentColor || "#f6f3ea";
   const adminUrl = buildAdminBookingUrl(booking._id);
-  const roomLabel = booking.roomId
-    ? `${booking.roomId.roomNumber} · ${booking.roomId.name || booking.roomType}`
-    : booking.roomType;
+  const roomLabel = buildBookingRoomLabel(booking);
 
   return `
     <div style="margin:0;background:${escapeHtml(accentColor)};padding:24px;font-family:Arial,sans-serif;color:#1f2937;">
@@ -480,9 +502,7 @@ const buildBookingStatusEmailHtml = ({ booking, settings, title, message, button
   const primaryColor = settings.primaryColor || "#174f37";
   const accentColor = settings.accentColor || "#f6f3ea";
   const bookingUrl = buildBookingStatusUrl(booking.bookingCode);
-  const roomLabel = booking.roomId
-    ? `${booking.roomId.roomNumber} · ${booking.roomId.name || booking.roomType}`
-    : booking.roomType;
+  const roomLabel = buildBookingRoomLabel(booking);
 
   return `
     <div style="margin:0;background:${escapeHtml(accentColor)};padding:24px;font-family:Arial,sans-serif;color:#1f2937;">

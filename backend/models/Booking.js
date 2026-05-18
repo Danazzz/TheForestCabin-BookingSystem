@@ -36,6 +36,83 @@ const bookingEmailDeliveryTypes = [
   "payment_reminder"
 ];
 
+const assignedRoomSchema = new mongoose.Schema(
+  {
+    roomId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Room",
+      required: true
+    },
+    roomNumber: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    roomType: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    name: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    basePrice: {
+      type: Number,
+      default: 0,
+      min: [0, "basePrice cannot be negative"]
+    }
+  },
+  { _id: false }
+);
+
+const bookingRoomItemSchema = new mongoose.Schema(
+  {
+    roomType: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    roomCount: {
+      type: Number,
+      required: true,
+      min: [1, "roomCount must be at least 1"],
+      default: 1
+    },
+    adultGuests: {
+      type: Number,
+      default: 0,
+      min: [0, "adultGuests cannot be negative"]
+    },
+    childGuests: {
+      type: Number,
+      default: 0,
+      min: [0, "childGuests cannot be negative"]
+    },
+    basePrice: {
+      type: Number,
+      default: 0,
+      min: [0, "basePrice cannot be negative"]
+    },
+    nights: {
+      type: Number,
+      default: 0,
+      min: [0, "nights cannot be negative"]
+    },
+    subtotal: {
+      type: Number,
+      default: 0,
+      min: [0, "subtotal cannot be negative"]
+    },
+    assignedRooms: {
+      type: [assignedRoomSchema],
+      default: []
+    }
+  },
+  { _id: false }
+);
+
 const bookingSchema = new mongoose.Schema(
   {
     bookingCode: {
@@ -134,6 +211,15 @@ const bookingSchema = new mongoose.Schema(
       default: 0,
       min: [0, "numberOfChildren cannot be negative"]
     },
+    numberOfRooms: {
+      type: Number,
+      default: 1,
+      min: [1, "numberOfRooms must be at least 1"]
+    },
+    roomItems: {
+      type: [bookingRoomItemSchema],
+      default: []
+    },
     totalAmount: {
       type: Number,
       required: [true, "totalAmount is required"],
@@ -197,6 +283,15 @@ const bookingSchema = new mongoose.Schema(
       ref: "CalendarEvent",
       default: null
     },
+    calendarEventIds: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "CalendarEvent"
+        }
+      ],
+      default: []
+    },
     invoiceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Invoice",
@@ -255,6 +350,7 @@ const bookingSchema = new mongoose.Schema(
 );
 
 bookingSchema.index({ roomId: 1, checkIn: 1, checkOut: 1 });
+bookingSchema.index({ "roomItems.assignedRooms.roomId": 1, checkIn: 1, checkOut: 1 });
 bookingSchema.index({ propertyId: 1, bookingStatus: 1 });
 bookingSchema.index({ roomType: 1, bookingStatus: 1 });
 

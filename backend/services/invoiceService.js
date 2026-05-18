@@ -2,6 +2,11 @@ const Invoice = require("../models/Invoice");
 const Room = require("../models/Room");
 const AppError = require("../utils/AppError");
 const {
+  getAssignedRoomsFromBooking,
+  getNights,
+  getRoomItemsFromBooking
+} = require("./bookingRoomItemsService");
+const {
   getInvoiceSettings,
   sanitizeInvoicePrefix,
   buildInvoiceSettingsSnapshot
@@ -26,6 +31,79 @@ const generateInvoiceNumber = async ({ session, prefix = "INV" } = {}) => {
   return `${invoicePrefix}-${datePart}-${Date.now()}`;
 };
 
+const buildInvoicePayload = async (booking, payment, { session, invoiceNumber } = {}) => {
+  const assignedRooms = getAssignedRoomsFromBooking(booking);
+  const roomItems = getRoomItemsFromBooking(booking);
+
+  if (assignedRooms.length === 0 && !booking.roomId) {
+    throw new AppError("Room not found for invoice generation", 404);
+  }
+
+  const fallbackRoom = booking.roomId
+    ? await Room.findById(booking.roomId).session(session || null)
+    : null;
+  const nights = getNights(booking.checkIn, booking.checkOut);
+  const subtotal = roomItems.reduce(
+    (total, item) => total + (item.subtotal || (item.basePrice || 0) * (item.roomCount || 1) * nights),
+    0
+  ) || booking.totalAmount;
+  const settings = await getInvoiceSettings({ session });
+  const settingsSnapshot = buildInvoiceSettingsSnapshot(settings);
+  const dateRange = `${booking.checkIn.toISOString().slice(0, 10)} to ${booking.checkOut.toISOString().slice(0, 10)}`;
+  const items = roomItems.map((item) => {
+    const roomNumbers = (item.assignedRooms || [])
+      .map((room) => room.roomNumber)
+      .filter(Boolean)
+      .join(", ");
+    const roomLabel = roomNumbers ? ` rooms ${roomNumbers}` : "";
+    const quantity = Math.max((item.roomCount || 1) * nights, 1);
+    const unitPrice = item.basePrice || 0;
+
+    return {
+      description: `${item.roomType}${roomLabel} (${dateRange})`,
+      quantity,
+      unitPrice,
+      amount: item.subtotal || unitPrice * quantity
+    };
+  });
+
+  if (items.length === 0 && fallbackRoom) {
+    items.push({
+      description: `${fallbackRoom.name} ${fallbackRoom.roomNumber} (${dateRange})`,
+      quantity: 1,
+      unitPrice: booking.totalAmount,
+      amount: booking.totalAmount
+    });
+  }
+
+  const roomTypeSummary = [...new Set(roomItems.map((item) => item.roomType).filter(Boolean))]
+    .join(", ") || booking.roomType;
+  const roomNumberSummary = assignedRooms
+    .map((room) => room.roomNumber)
+    .filter(Boolean)
+    .join(", ") || fallbackRoom?.roomNumber || "-";
+
+  return {
+    invoiceNumber: invoiceNumber || await generateInvoiceNumber({
+      session,
+      prefix: settingsSnapshot.invoicePrefix
+    }),
+    bookingId: booking._id,
+    guestName: booking.guestName,
+    guestEmail: booking.guestEmail,
+    roomType: roomTypeSummary,
+    roomNumber: roomNumberSummary,
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    items,
+    subtotal,
+    totalAmount: booking.totalAmount,
+    paymentMethod: payment.paymentMethod,
+    invoiceStatus: "paid",
+    settingsSnapshot
+  };
+};
+
 const generateInvoiceForBooking = async (booking, payment, { session } = {}) => {
   const existingInvoice = await Invoice.findOne({ bookingId: booking._id }).session(
     session || null
@@ -35,44 +113,12 @@ const generateInvoiceForBooking = async (booking, payment, { session } = {}) => 
     return existingInvoice;
   }
 
-  const room = await Room.findById(booking.roomId).session(session || null);
-
-  if (!room) {
-    throw new AppError("Room not found for invoice generation", 404);
-  }
-
-  const subtotal = booking.totalAmount;
-  const settings = await getInvoiceSettings({ session });
-  const settingsSnapshot = buildInvoiceSettingsSnapshot(settings);
-  const items = [
-    {
-      description: `${room.name} ${room.roomNumber} (${booking.checkIn.toISOString().slice(0, 10)} to ${booking.checkOut.toISOString().slice(0, 10)})`,
-      quantity: 1,
-      unitPrice: subtotal,
-      amount: subtotal
-    }
-  ];
+  const invoicePayload = await buildInvoicePayload(booking, payment, { session });
 
   const [invoice] = await Invoice.create(
     [
       {
-        invoiceNumber: await generateInvoiceNumber({
-          session,
-          prefix: settingsSnapshot.invoicePrefix
-        }),
-        bookingId: booking._id,
-        guestName: booking.guestName,
-        guestEmail: booking.guestEmail,
-        roomType: booking.roomType,
-        roomNumber: room.roomNumber,
-        checkIn: booking.checkIn,
-        checkOut: booking.checkOut,
-        items,
-        subtotal,
-        totalAmount: booking.totalAmount,
-        paymentMethod: payment.paymentMethod,
-        invoiceStatus: "paid",
-        settingsSnapshot,
+        ...invoicePayload,
         issuedAt: new Date()
       }
     ],
@@ -80,6 +126,32 @@ const generateInvoiceForBooking = async (booking, payment, { session } = {}) => 
   );
 
   return invoice;
+};
+
+const syncInvoiceForBooking = async (booking, payment, { session } = {}) => {
+  const existingInvoice = await Invoice.findOne({ bookingId: booking._id }).session(
+    session || null
+  );
+
+  if (!existingInvoice) {
+    return generateInvoiceForBooking(booking, payment, { session });
+  }
+
+  const invoicePayload = await buildInvoicePayload(booking, payment, {
+    session,
+    invoiceNumber: existingInvoice.invoiceNumber
+  });
+
+  existingInvoice.set({
+    ...invoicePayload,
+    emailStatus: "pending",
+    emailedAt: null,
+    emailError: ""
+  });
+
+  await existingInvoice.save(sessionOption(session));
+
+  return existingInvoice;
 };
 
 const prepareInvoicePdfExport = async (invoiceId) => {
@@ -92,5 +164,6 @@ const prepareInvoicePdfExport = async (invoiceId) => {
 
 module.exports = {
   generateInvoiceForBooking,
+  syncInvoiceForBooking,
   prepareInvoicePdfExport
 };

@@ -14,6 +14,7 @@ const {
   createQrisPayment,
   handlePaymentWebhook
 } = require("../services/paymentGatewayService");
+const { getAssignedRoomsFromBooking } = require("../services/bookingRoomItemsService");
 
 const buildReference = (paymentMethod, bookingId) => {
   const prefixByMethod = {
@@ -133,7 +134,7 @@ const createPayment = asyncHandler(async (req, res) => {
     throw new AppError("Payment can only be created for bookings pending payment", 409);
   }
 
-  if (!booking.roomId) {
+  if (getAssignedRoomsFromBooking(booking).length === 0) {
     throw new AppError("Booking must have an assigned room before payment can be created", 409);
   }
 

@@ -5,6 +5,7 @@ const {
   getOverlapNights,
   parseDashboardRange
 } = require("./dashboardSummaryService");
+const { getAssignedRoomsFromBooking, getRoomItemsFromBooking } = require("./bookingRoomItemsService");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -164,6 +165,8 @@ const buildBookingsOccupancyCsv = async ({ startDate, endDate } = {}) => {
       const proratedAmount = Math.round(getProratedAmount(booking, overlapNights));
       const countsAsOccupancy = isOccupancyBooking(booking);
       const countsAsPotentialIncome = isPotentialIncomeBooking(booking);
+      const assignedRooms = getAssignedRoomsFromBooking(booking);
+      const roomItems = getRoomItemsFromBooking(booking);
       const room = booking.roomId || {};
       const invoice = booking.invoiceId || {};
       const payment = booking.paymentId || {};
@@ -173,9 +176,9 @@ const buildBookingsOccupancyCsv = async ({ startDate, endDate } = {}) => {
         booking.guestName,
         booking.guestEmail,
         booking.guestPhone,
-        room.roomNumber || "",
-        room.name || "",
-        room.roomType || booking.roomType,
+        assignedRooms.map((assignedRoom) => assignedRoom.roomNumber).filter(Boolean).join(", ") || room.roomNumber || "",
+        assignedRooms.map((assignedRoom) => assignedRoom.name).filter(Boolean).join(", ") || room.name || "",
+        roomItems.map((item) => `${item.roomCount || 1}x ${item.roomType}`).join(", ") || room.roomType || booking.roomType,
         toDateOnly(booking.checkIn),
         toDateOnly(booking.checkOut),
         totalStayNights,

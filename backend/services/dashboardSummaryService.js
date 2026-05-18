@@ -8,6 +8,7 @@ const {
   SMTP_DAILY_LIMIT_WARNING_CODE,
   getSmtpDailyLimit
 } = require("./emailService");
+const { getRoomItemsFromBooking } = require("./bookingRoomItemsService");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const DEFAULT_DATABASE_STORAGE_LIMIT_MB = 512;
@@ -297,20 +298,34 @@ const getDashboardSummary = async ({ startDate, endDate } = {}) => {
 
     if (booking.bookingStatus === "success" && booking.paymentStatus === "paid") {
       confirmedBookingCount += 1;
-      confirmedRoomNights += overlapNights;
       revenue += proratedAmount;
+      const roomItems = getRoomItemsFromBooking(booking);
+      const itemSubtotalTotal = roomItems.reduce(
+        (total, item) => total + (item.subtotal || item.roomCount || 1),
+        0
+      ) || Number(booking.totalAmount || 0) || 1;
+      let bookingRoomNights = 0;
 
-      const roomType = booking.roomId?.roomType || booking.roomType;
-      const current = roomTypeBreakdown.get(roomType);
+      roomItems.forEach((item) => {
+        const roomCount = item.roomCount || 1;
+        const itemRoomNights = overlapNights * roomCount;
+        const itemRevenue = proratedAmount * ((item.subtotal || item.roomCount || 1) / itemSubtotalTotal);
+        const roomType = item.roomType || booking.roomId?.roomType || booking.roomType;
+        const current = roomTypeBreakdown.get(roomType);
 
-      if (current) {
-        current.bookedRoomNights += overlapNights;
-        current.revenue += proratedAmount;
-        current.bookingCount += 1;
-      }
+        bookingRoomNights += itemRoomNights;
+
+        if (current) {
+          current.bookedRoomNights += itemRoomNights;
+          current.revenue += itemRevenue;
+          current.bookingCount += 1;
+        }
+      });
+
+      confirmedRoomNights += bookingRoomNights;
 
       incrementSourceBreakdown(sourceBreakdown, booking, {
-        roomNights: overlapNights,
+        roomNights: bookingRoomNights || overlapNights,
         revenue: proratedAmount
       });
     } else if (
