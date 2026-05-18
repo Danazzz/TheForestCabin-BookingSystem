@@ -3,6 +3,7 @@ const {
   getDashboardSummary,
   getAdminBookings,
   createManualBooking,
+  updateAdminBooking,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
   updateBookingGuestEmail,
@@ -56,6 +57,7 @@ router.get("/bookings", getAdminBookings);
 router.post("/bookings/manual", createManualBooking);
 router.get("/bookings/waiting-approval", getWaitingApprovalBookings);
 router.get("/bookings/:id", getAdminBookingDetail);
+router.patch("/bookings/:id", updateAdminBooking);
 router.patch("/bookings/:id/guest-email", updateBookingGuestEmail);
 router.patch("/bookings/:id/availability/approve", approveBookingAvailability);
 router.patch("/bookings/:id/availability/reject", rejectBookingAvailability);

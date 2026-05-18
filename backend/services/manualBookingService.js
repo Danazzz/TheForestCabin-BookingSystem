@@ -1,5 +1,6 @@
 const Booking = require("../models/Booking");
 const Channel = require("../models/Channel");
+const Invoice = require("../models/Invoice");
 const Payment = require("../models/Payment");
 const Promo = require("../models/Promo");
 const Room = require("../models/Room");
@@ -16,8 +17,14 @@ const {
   findAvailableRoomsByType,
   findAvailableRoomByType
 } = require("./availabilityService");
-const { createCalendarEventForBooking } = require("./calendarService");
-const { generateInvoiceForBooking } = require("./invoiceService");
+const {
+  cancelCalendarEventByBooking,
+  createCalendarEventForBooking
+} = require("./calendarService");
+const {
+  generateInvoiceForBooking,
+  syncInvoiceForBooking
+} = require("./invoiceService");
 const { sendInvoiceEmail } = require("./emailService");
 const {
   buildPricedRoomItems,
@@ -30,6 +37,21 @@ const {
 const sessionOption = (session) => (session ? { session } : undefined);
 const manualBookingStatuses = ["pending_payment", "success"];
 const manualPaymentStatuses = ["unpaid", "paid"];
+const editableBookingStatuses = Booking.bookingStatuses || [
+  "waiting_availability_approval",
+  "pending_payment",
+  "waiting_admin_approval",
+  "success",
+  "rejected",
+  "cancelled"
+];
+const editablePaymentStatuses = Booking.paymentStatuses || [
+  "unpaid",
+  "pending",
+  "paid",
+  "rejected",
+  "refund_required"
+];
 
 const applyPromoPricing = (subtotal, promo) => {
   if (!promo || subtotal <= 0) {
@@ -144,6 +166,30 @@ const validateManualEnums = ({ bookingStatus, paymentStatus }) => {
 
   if (bookingStatus === "success" && paymentStatus !== "paid") {
     throw new AppError("Successful manual bookings must have paid payment status", 400);
+  }
+};
+
+const validateEditableEnums = ({ bookingStatus, paymentStatus }) => {
+  if (!editableBookingStatuses.includes(bookingStatus)) {
+    throw new AppError(
+      `bookingStatus must be one of: ${editableBookingStatuses.join(", ")}`,
+      400
+    );
+  }
+
+  if (!editablePaymentStatuses.includes(paymentStatus)) {
+    throw new AppError(
+      `paymentStatus must be one of: ${editablePaymentStatuses.join(", ")}`,
+      400
+    );
+  }
+
+  if (bookingStatus === "success" && paymentStatus !== "paid") {
+    throw new AppError("Successful bookings must have paid payment status", 400);
+  }
+
+  if (bookingStatus === "pending_payment" && paymentStatus === "paid") {
+    throw new AppError("Pending payment bookings cannot have paid payment status", 400);
   }
 };
 
@@ -277,7 +323,11 @@ const validateAssignedRoomCapacity = (item, rooms) => {
   }
 };
 
-const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, session } = {}) => {
+const assignManualRoomItems = async (
+  roomItems,
+  payload,
+  { checkIn, checkOut, session, excludeBookingId } = {}
+) => {
   const assignedRoomIds = new Set();
 
   for (let index = 0; index < roomItems.length; index += 1) {
@@ -292,7 +342,10 @@ const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, se
         throw new AppError("roomId does not match selected roomType", 400);
       }
 
-      await assertRoomAvailable({ roomId: room._id, checkIn, checkOut }, { session });
+      await assertRoomAvailable(
+        { roomId: room._id, checkIn, checkOut, excludeBookingId },
+        { session }
+      );
       validateAssignedRoomCapacity(item, [room]);
       item.assignedRooms = [buildRoomSnapshot(room)];
       assignedRoomIds.add(String(room._id));
@@ -300,6 +353,10 @@ const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, se
     }
 
     if (explicitRoomIds.length > 0) {
+      if (new Set(explicitRoomIds.map(String)).size !== explicitRoomIds.length) {
+        throw new AppError("The same room cannot be assigned twice to one booking", 400);
+      }
+
       if (explicitRoomIds.length !== item.roomCount) {
         throw new AppError(`Select exactly ${item.roomCount} room(s) for ${item.roomType}`, 400);
       }
@@ -317,7 +374,10 @@ const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, se
           throw new AppError("The same room cannot be assigned twice to one booking", 400);
         }
 
-        await assertRoomAvailable({ roomId: room._id, checkIn, checkOut }, { session });
+        await assertRoomAvailable(
+          { roomId: room._id, checkIn, checkOut, excludeBookingId },
+          { session }
+        );
         assignedRoomIds.add(String(room._id));
       }
 
@@ -332,7 +392,8 @@ const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, se
         checkIn,
         checkOut,
         count: item.roomCount,
-        excludeRoomIds: [...assignedRoomIds]
+        excludeRoomIds: [...assignedRoomIds],
+        excludeBookingId
       },
       { session }
     );
@@ -343,6 +404,155 @@ const assignManualRoomItems = async (roomItems, payload, { checkIn, checkOut, se
   }
 
   return roomItems;
+};
+
+const buildManualBookingData = async (
+  payload,
+  { session, excludeBookingId, fallbackBooking } = {}
+) => {
+  const { startDate, endDate } = validateDateRange(
+    payload.checkIn || fallbackBooking?.checkIn,
+    payload.checkOut || fallbackBooking?.checkOut
+  );
+  const bookingStatus = payload.bookingStatus || fallbackBooking?.bookingStatus || "pending_payment";
+  const paymentStatus = payload.paymentStatus || fallbackBooking?.paymentStatus || "unpaid";
+
+  validateEditableEnums({ bookingStatus, paymentStatus });
+
+  const nights = getNights(startDate, endDate);
+  const requestedRoomItems = normalizeRoomItemsPayload(payload.roomItems ? payload : fallbackBooking);
+  const pricedRoomItems = await buildPricedRoomItems(requestedRoomItems, { nights, session });
+  const assignedRoomItems = await assignManualRoomItems(pricedRoomItems, payload, {
+    checkIn: startDate,
+    checkOut: endDate,
+    session,
+    excludeBookingId
+  });
+  const numberOfGuests = assignedRoomItems.reduce((total, item) => total + item.adultGuests, 0);
+  const numberOfChildren = assignedRoomItems.reduce((total, item) => total + item.childGuests, 0);
+  const numberOfRooms = assignedRoomItems.reduce((total, item) => total + item.roomCount, 0);
+  const firstAssignedRoom = assignedRoomItems
+    .flatMap((item) => item.assignedRooms || [])
+    .find((room) => room.roomId);
+  const primaryRoomType = assignedRoomItems[0]?.roomType;
+  const subtotalAmount = assignedRoomItems.reduce((total, item) => total + item.subtotal, 0);
+  const promoId = payload.promoId === undefined ? fallbackBooking?.promoId : payload.promoId;
+  let promo = null;
+
+  if (payload.promoId === undefined && fallbackBooking?.promoId) {
+    promo = {
+      _id: fallbackBooking.promoId,
+      name: fallbackBooking.promoName || "",
+      adjustmentType: fallbackBooking.promoAdjustmentType || "",
+      adjustmentValue: fallbackBooking.promoAdjustmentValue || 0
+    };
+  } else if (promoId) {
+    promo = await getActivePromo(promoId, {
+      session,
+      nights,
+      roomTypes: assignedRoomItems.map((item) => item.roomType),
+      totalRooms: numberOfRooms
+    });
+  }
+  const calculatedTotal = promo
+    ? Math.max(0, Math.round(applyPromoPricing(subtotalAmount, promo)))
+    : subtotalAmount;
+  const totalAmount = payload.overrideTotal
+    ? validatePositiveNumber(payload.totalAmount ?? calculatedTotal, "totalAmount", true)
+    : calculatedTotal;
+  const source = await resolveManualBookingSource(
+    {
+      ...payload,
+      source: payload.source ?? fallbackBooking?.source,
+      sourceName: payload.sourceName ?? fallbackBooking?.sourceName
+    },
+    { session }
+  );
+
+  return {
+    startDate,
+    endDate,
+    bookingStatus,
+    paymentStatus,
+    assignedRoomItems,
+    numberOfGuests,
+    numberOfChildren,
+    numberOfRooms,
+    firstAssignedRoom,
+    primaryRoomType,
+    totalAmount,
+    promo,
+    source
+  };
+};
+
+const upsertManualPayment = async ({ booking, paymentStatus, adminNote, session }) => {
+  if (paymentStatus !== "paid") {
+    return null;
+  }
+
+  let payment = booking.paymentId
+    ? await Payment.findById(booking.paymentId).session(session || null)
+    : null;
+
+  if (!payment) {
+    payment = await Payment.findOne({ bookingId: booking._id })
+      .sort({ createdAt: -1 })
+      .session(session || null);
+  }
+
+  if (!payment) {
+    return createManualPayment({
+      booking,
+      paymentStatus,
+      adminNote,
+      session
+    });
+  }
+
+  payment.amount = booking.totalAmount;
+  payment.paymentMethod = payment.paymentMethod || "other";
+  payment.paymentStatus = "paid";
+  payment.adminNote = adminNote || payment.adminNote || "Updated from admin booking edit";
+  payment.approvedBy = payment.approvedBy || "system-admin";
+  payment.approvedAt = payment.approvedAt || new Date();
+  payment.rejectedAt = null;
+
+  await payment.save(sessionOption(session));
+
+  return payment;
+};
+
+const syncSuccessfulBookingSideEffects = async ({ booking, payment, session }) => {
+  await cancelCalendarEventByBooking(booking._id, { session });
+
+  const calendarEvent = await createCalendarEventForBooking(booking, {
+    session,
+    availabilityMessage:
+      "Cannot update booking because one or more selected rooms are no longer available."
+  });
+  const invoice = await syncInvoiceForBooking(booking, payment, { session });
+
+  booking.calendarEventId = calendarEvent._id;
+  booking.calendarEventIds = calendarEvent.calendarEventIds || [calendarEvent._id];
+  booking.invoiceId = invoice._id;
+  booking.paymentId = payment._id;
+
+  await booking.save(sessionOption(session));
+
+  return { calendarEvent, invoice };
+};
+
+const cancelConfirmedSideEffects = async (booking, { session } = {}) => {
+  await cancelCalendarEventByBooking(booking._id, { session });
+  await Invoice.updateMany(
+    { bookingId: booking._id, invoiceStatus: "paid" },
+    { invoiceStatus: "cancelled" },
+    sessionOption(session) || {}
+  );
+
+  booking.calendarEventId = null;
+  booking.calendarEventIds = [];
 };
 
 const createManualBooking = async (payload, { approvedBy } = {}) => {
@@ -464,8 +674,97 @@ const createManualBooking = async (payload, { approvedBy } = {}) => {
     .populate("calendarEventId");
 };
 
+const updateManualBooking = async (bookingId, payload, { approvedBy } = {}) => {
+  validateObjectId(bookingId, "booking id");
+
+  const result = await runWithOptionalTransaction(async (session) => {
+    const booking = await Booking.findById(bookingId).session(session || null);
+
+    if (!booking) {
+      throw new AppError("Booking not found", 404);
+    }
+
+    if (booking.bookingStatus === "cancelled") {
+      throw new AppError("Cancelled bookings cannot be edited", 409);
+    }
+
+    const bookingData = await buildManualBookingData(payload, {
+      session,
+      excludeBookingId: booking._id,
+      fallbackBooking: booking
+    });
+
+    const guestName = payload.guestName ?? booking.guestName;
+    const guestEmail = payload.guestEmail ?? booking.guestEmail;
+    const guestPhone = payload.guestPhone ?? booking.guestPhone;
+
+    booking.guestName = guestName;
+    booking.guestEmail = guestEmail || "";
+    booking.guestPhone = guestPhone;
+    booking.propertyId = payload.propertyId || booking.propertyId || "the-forest-cabin";
+    booking.roomId = bookingData.firstAssignedRoom?.roomId || null;
+    booking.roomType = bookingData.primaryRoomType;
+    booking.checkIn = bookingData.startDate;
+    booking.checkOut = bookingData.endDate;
+    booking.numberOfGuests = bookingData.numberOfGuests;
+    booking.numberOfChildren = bookingData.numberOfChildren;
+    booking.numberOfRooms = bookingData.numberOfRooms;
+    booking.roomItems = bookingData.assignedRoomItems;
+    booking.totalAmount = bookingData.totalAmount;
+    booking.promoId = bookingData.promo?._id || null;
+    booking.promoName = bookingData.promo?.name || "";
+    booking.promoAdjustmentType = bookingData.promo?.adjustmentType || "";
+    booking.promoAdjustmentValue = bookingData.promo?.adjustmentValue || 0;
+    booking.source = bookingData.source.source;
+    booking.sourceName = bookingData.source.sourceName;
+    booking.bookingStatus = bookingData.bookingStatus;
+    booking.paymentStatus = bookingData.paymentStatus;
+    booking.adminNote = payload.adminNote ?? booking.adminNote;
+    booking.approvedAt = bookingData.bookingStatus === "success"
+      ? booking.approvedAt || new Date()
+      : booking.approvedAt;
+    booking.updatedBy = approvedBy || booking.updatedBy;
+
+    await booking.save(sessionOption(session));
+
+    const payment = await upsertManualPayment({
+      booking,
+      paymentStatus: bookingData.paymentStatus,
+      adminNote: payload.adminNote,
+      session
+    });
+
+    if (payment) {
+      booking.paymentId = payment._id;
+    }
+
+    if (bookingData.bookingStatus === "success") {
+      await syncSuccessfulBookingSideEffects({ booking, payment, session });
+    } else {
+      await cancelConfirmedSideEffects(booking, { session });
+      await booking.save(sessionOption(session));
+    }
+
+    return Booking.findById(booking._id)
+      .populate("roomId")
+      .populate("paymentId")
+      .populate("invoiceId")
+      .populate("calendarEventId")
+      .populate("calendarEventIds")
+      .session(session || null);
+  });
+
+  return Booking.findById(result._id)
+    .populate("roomId")
+    .populate("paymentId")
+    .populate("invoiceId")
+    .populate("calendarEventId")
+    .populate("calendarEventIds");
+};
+
 module.exports = {
   createManualBooking,
+  updateManualBooking,
   manualBookingStatuses,
   manualPaymentStatuses
 };

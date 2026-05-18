@@ -21,7 +21,10 @@ const {
   sendNoRoomAvailableEmail,
   sendPaymentReminderEmail
 } = require("../services/emailService");
-const { createManualBooking: createManualBookingService } = require("../services/manualBookingService");
+const {
+  createManualBooking: createManualBookingService,
+  updateManualBooking: updateManualBookingService
+} = require("../services/manualBookingService");
 const { getDashboardSummary: getDashboardSummaryService } = require("../services/dashboardSummaryService");
 const {
   buildBookingsOccupancyCsv,
@@ -117,6 +120,20 @@ const createManualBooking = asyncHandler(async (req, res) => {
   });
 
   sendResponse(res, 201, "Manual booking created successfully", booking);
+});
+
+const updateAdminBooking = asyncHandler(async (req, res) => {
+  validateObjectId(req.params.id, "booking id");
+
+  const booking = await updateManualBookingService(req.params.id, req.body, {
+    approvedBy: req.user?.id || req.body?.approvedBy
+  });
+  const payments = await Payment.find({ bookingId: booking._id }).sort({ createdAt: -1 });
+
+  sendResponse(res, 200, "Booking updated successfully", {
+    booking,
+    payments
+  });
 });
 
 const getAdminBookingDetail = asyncHandler(async (req, res) => {
@@ -378,6 +395,7 @@ module.exports = {
   exportInvoicesIncome,
   getAdminBookings,
   createManualBooking,
+  updateAdminBooking,
   getWaitingApprovalBookings,
   getAdminBookingDetail,
   updateBookingGuestEmail,

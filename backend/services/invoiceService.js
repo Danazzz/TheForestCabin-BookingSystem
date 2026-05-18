@@ -31,15 +31,7 @@ const generateInvoiceNumber = async ({ session, prefix = "INV" } = {}) => {
   return `${invoicePrefix}-${datePart}-${Date.now()}`;
 };
 
-const generateInvoiceForBooking = async (booking, payment, { session } = {}) => {
-  const existingInvoice = await Invoice.findOne({ bookingId: booking._id }).session(
-    session || null
-  );
-
-  if (existingInvoice) {
-    return existingInvoice;
-  }
-
+const buildInvoicePayload = async (booking, payment, { session, invoiceNumber } = {}) => {
   const assignedRooms = getAssignedRoomsFromBooking(booking);
   const roomItems = getRoomItemsFromBooking(booking);
 
@@ -91,26 +83,42 @@ const generateInvoiceForBooking = async (booking, payment, { session } = {}) => 
     .filter(Boolean)
     .join(", ") || fallbackRoom?.roomNumber || "-";
 
+  return {
+    invoiceNumber: invoiceNumber || await generateInvoiceNumber({
+      session,
+      prefix: settingsSnapshot.invoicePrefix
+    }),
+    bookingId: booking._id,
+    guestName: booking.guestName,
+    guestEmail: booking.guestEmail,
+    roomType: roomTypeSummary,
+    roomNumber: roomNumberSummary,
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    items,
+    subtotal,
+    totalAmount: booking.totalAmount,
+    paymentMethod: payment.paymentMethod,
+    invoiceStatus: "paid",
+    settingsSnapshot
+  };
+};
+
+const generateInvoiceForBooking = async (booking, payment, { session } = {}) => {
+  const existingInvoice = await Invoice.findOne({ bookingId: booking._id }).session(
+    session || null
+  );
+
+  if (existingInvoice) {
+    return existingInvoice;
+  }
+
+  const invoicePayload = await buildInvoicePayload(booking, payment, { session });
+
   const [invoice] = await Invoice.create(
     [
       {
-        invoiceNumber: await generateInvoiceNumber({
-          session,
-          prefix: settingsSnapshot.invoicePrefix
-        }),
-        bookingId: booking._id,
-        guestName: booking.guestName,
-        guestEmail: booking.guestEmail,
-        roomType: roomTypeSummary,
-        roomNumber: roomNumberSummary,
-        checkIn: booking.checkIn,
-        checkOut: booking.checkOut,
-        items,
-        subtotal,
-        totalAmount: booking.totalAmount,
-        paymentMethod: payment.paymentMethod,
-        invoiceStatus: "paid",
-        settingsSnapshot,
+        ...invoicePayload,
         issuedAt: new Date()
       }
     ],
@@ -118,6 +126,32 @@ const generateInvoiceForBooking = async (booking, payment, { session } = {}) => 
   );
 
   return invoice;
+};
+
+const syncInvoiceForBooking = async (booking, payment, { session } = {}) => {
+  const existingInvoice = await Invoice.findOne({ bookingId: booking._id }).session(
+    session || null
+  );
+
+  if (!existingInvoice) {
+    return generateInvoiceForBooking(booking, payment, { session });
+  }
+
+  const invoicePayload = await buildInvoicePayload(booking, payment, {
+    session,
+    invoiceNumber: existingInvoice.invoiceNumber
+  });
+
+  existingInvoice.set({
+    ...invoicePayload,
+    emailStatus: "pending",
+    emailedAt: null,
+    emailError: ""
+  });
+
+  await existingInvoice.save(sessionOption(session));
+
+  return existingInvoice;
 };
 
 const prepareInvoicePdfExport = async (invoiceId) => {
@@ -130,5 +164,6 @@ const prepareInvoicePdfExport = async (invoiceId) => {
 
 module.exports = {
   generateInvoiceForBooking,
+  syncInvoiceForBooking,
   prepareInvoicePdfExport
 };

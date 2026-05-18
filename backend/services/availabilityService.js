@@ -119,12 +119,15 @@ const getRoomsByType = async ({ roomType, includeInactive = false } = {}) => {
   return Room.find(query).sort({ roomType: 1, roomNumber: 1 });
 };
 
-const getAvailabilityByRoomType = async ({ roomType, checkIn, checkOut }, { session } = {}) => {
+const getAvailabilityByRoomType = async (
+  { roomType, checkIn, checkOut, excludeBookingId },
+  { session } = {}
+) => {
   const { startDate, endDate } = validateDateRange(checkIn, checkOut);
   const rooms = await getRoomsByType({ roomType });
   const roomIds = rooms.map((room) => room._id);
 
-  const blockingBookings = await Booking.find({
+  const blockingQuery = {
     bookingStatus: "success",
     checkIn: { $lt: endDate },
     checkOut: { $gt: startDate },
@@ -132,7 +135,13 @@ const getAvailabilityByRoomType = async ({ roomType, checkIn, checkOut }, { sess
       { roomId: { $in: roomIds } },
       { "roomItems.assignedRooms.roomId": { $in: roomIds } }
     ]
-  })
+  };
+
+  if (excludeBookingId) {
+    blockingQuery._id = { $ne: excludeBookingId };
+  }
+
+  const blockingBookings = await Booking.find(blockingQuery)
     .select("roomId roomItems bookingCode guestName checkIn checkOut bookingStatus")
     .session(session || null);
 
@@ -156,7 +165,7 @@ const getAvailabilityByRoomType = async ({ roomType, checkIn, checkOut }, { sess
 };
 
 const findAvailableRoomsByType = async (
-  { roomType, checkIn, checkOut, count = 1, excludeRoomIds = [] },
+  { roomType, checkIn, checkOut, count = 1, excludeRoomIds = [], excludeBookingId },
   { session } = {}
 ) => {
   const normalizedRoomType = Room.normalizeRoomType(roomType);
@@ -164,7 +173,8 @@ const findAvailableRoomsByType = async (
     {
       roomType: normalizedRoomType,
       checkIn,
-      checkOut
+      checkOut,
+      excludeBookingId
     },
     { session }
   );
