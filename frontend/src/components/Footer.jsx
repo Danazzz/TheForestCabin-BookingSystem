@@ -1,4 +1,4 @@
-import { FaInstagram, FaFacebook, FaTiktok } from "react-icons/fa";
+import { FaInstagram, FaTiktok } from "react-icons/fa";
 
 export default function Footer() {
   return (
@@ -20,7 +20,7 @@ export default function Footer() {
           <h3 className="font-semibold mb-3">Contact</h3>
           <p className="text-sm">Bali, Indonesia</p>
           <p className="text-sm">+62 815-1167-1818</p>
-          <p className="text-sm">info@forestcabin.com</p>
+          <p className="text-sm">theforestcabin.kintamani@gmail.com</p>
         </div>
 
         {/* SOCIAL */}
@@ -30,7 +30,7 @@ export default function Footer() {
           <div className="flex gap-4 text-xl">
 
             <a
-              href="https://instagram.com"
+              href="https://www.instagram.com/theforestcabin.kintamani?igsh=eHo0YTdxd3FzaTY4"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition transform hover:scale-110"
@@ -39,16 +39,7 @@ export default function Footer() {
             </a>
 
             <a
-              href="https://facebook.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white transition transform hover:scale-110"
-            >
-              <FaFacebook />
-            </a>
-
-            <a
-              href="https://tiktok.com"
+              href="https://www.tiktok.com/@theforestcabin.kintamani?_r=1&_t=ZS-96jCa4vN96O"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition transform hover:scale-110"
