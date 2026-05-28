@@ -796,6 +796,47 @@ export default function BookingSection({ highlight }) {
   };
 
   useEffect(() => {
+    const bookingCode = bookingResult?.booking?.bookingCode;
+
+    if (
+      !bookingCode ||
+      bookingResult?.booking?.bookingStatus !== "waiting_availability_approval"
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const refreshWaitingBooking = async () => {
+      try {
+        const bookingResponse = await bookingApi.getByCode(bookingCode);
+        const booking = bookingResponse.data;
+        const paymentResponse = await paymentApi.getByBooking(booking._id);
+
+        if (cancelled) {
+          return;
+        }
+
+        setBookingResult((previous) => ({
+          ...previous,
+          booking,
+          payments: paymentResponse.data,
+          payment: paymentResponse.data?.[0] || null,
+        }));
+      } catch {
+        // Keep the guest-facing waiting state quiet; manual refresh still shows errors.
+      }
+    };
+
+    const intervalId = window.setInterval(refreshWaitingBooking, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [bookingResult?.booking?.bookingCode, bookingResult?.booking?.bookingStatus]);
+
+  useEffect(() => {
     let ignore = false;
     const initialBookingCode = getInitialBookingCode();
 
@@ -1459,9 +1500,22 @@ export default function BookingSection({ highlight }) {
             </p>
           ) : null}
           {bookingResult?.booking?.bookingStatus === "waiting_availability_approval" ? (
-            <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              Thank you. Your booking request has been received. Please wait for the admin's approval by email before continuing to payment.
-            </p>
+            <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p>
+                Thank you. Your booking request has been received. Please wait for the admin's approval by email before continuing to payment.
+              </p>
+              <p className="mt-2 text-xs">
+                This page will check approval status automatically. If email is delayed, keep this page open or refresh with your booking code.
+              </p>
+              <button
+                type="button"
+                onClick={() => refreshStatus(bookingResult.booking.bookingCode)}
+                disabled={refreshing}
+                className="mt-3 rounded border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:text-amber-400"
+              >
+                {refreshing ? "Checking..." : "Check approval status now"}
+              </button>
+            </div>
           ) : null}
           {["rejected", "cancelled"].includes(bookingResult?.booking?.bookingStatus) ? (
             <p className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">

@@ -1,3 +1,4 @@
+const dns = require("dns");
 const nodemailer = require("nodemailer");
 const Invoice = require("../models/Invoice");
 const Booking = require("../models/Booking");
@@ -70,11 +71,20 @@ const buildBookingRoomLabel = (booking) => {
 const SMTP_DAILY_LIMIT_WARNING_CODE = "SMTP_DAILY_LIMIT_REACHED";
 const DEFAULT_SMTP_DAILY_LIMIT = 500;
 
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
+
 const getSmtpFrom = () => process.env.SMTP_FROM || process.env.EMAIL_FROM || "";
 const getSmtpReplyTo = () => process.env.SMTP_REPLY_TO || process.env.EMAIL_REPLY_TO || "";
 const getSmtpDailyLimit = () => Number(process.env.SMTP_DAILY_LIMIT || DEFAULT_SMTP_DAILY_LIMIT);
 const isSmtpConfigured = () => Boolean(process.env.SMTP_HOST && getSmtpFrom());
 const getSmtpNotConfiguredMessage = () => "SMTP_HOST and SMTP_FROM are not configured";
+const getNumberEnv = (key, fallback) => {
+  const value = Number(process.env[key]);
+
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
 
 const isSmtpLimitError = (error) => {
   const value = [
@@ -125,6 +135,10 @@ const buildTransport = () => {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+    family: String(process.env.SMTP_FORCE_IPV4 || "true").toLowerCase() === "true" ? 4 : undefined,
+    connectionTimeout: getNumberEnv("SMTP_CONNECTION_TIMEOUT_MS", 20000),
+    greetingTimeout: getNumberEnv("SMTP_GREETING_TIMEOUT_MS", 20000),
+    socketTimeout: getNumberEnv("SMTP_SOCKET_TIMEOUT_MS", 30000),
     auth
   });
 };
