@@ -1,4 +1,5 @@
 const dns = require("dns");
+const net = require("net");
 const nodemailer = require("nodemailer");
 const Invoice = require("../models/Invoice");
 const Booking = require("../models/Booking");
@@ -80,6 +81,8 @@ const getSmtpReplyTo = () => process.env.SMTP_REPLY_TO || process.env.EMAIL_REPL
 const getSmtpDailyLimit = () => Number(process.env.SMTP_DAILY_LIMIT || DEFAULT_SMTP_DAILY_LIMIT);
 const isSmtpConfigured = () => Boolean(process.env.SMTP_HOST && getSmtpFrom());
 const getSmtpNotConfiguredMessage = () => "SMTP_HOST and SMTP_FROM are not configured";
+const shouldForceSmtpIpv4 = () =>
+  String(process.env.SMTP_FORCE_IPV4 || "true").toLowerCase() === "true";
 const getNumberEnv = (key, fallback) => {
   const value = Number(process.env[key]);
 
@@ -122,7 +125,32 @@ const normalizeEmailError = (error) => {
   return rawMessage;
 };
 
-const buildTransport = () => {
+const resolveSmtpHost = async () => {
+  const host = String(process.env.SMTP_HOST || "").trim();
+
+  if (!host || !shouldForceSmtpIpv4() || net.isIP(host)) {
+    return { host, servername: host };
+  }
+
+  let addresses = [];
+
+  try {
+    addresses = await dns.promises.resolve4(host);
+  } catch (error) {
+    throw new Error(`Unable to resolve an IPv4 SMTP address for ${host}: ${error.message}`);
+  }
+
+  if (addresses.length === 0) {
+    throw new Error(`Unable to resolve an IPv4 SMTP address for ${host}`);
+  }
+
+  return {
+    host: addresses[0],
+    servername: host
+  };
+};
+
+const buildTransport = async () => {
   const auth =
     process.env.SMTP_USER || process.env.SMTP_PASS
       ? {
@@ -130,12 +158,16 @@ const buildTransport = () => {
           pass: process.env.SMTP_PASS
         }
       : undefined;
+  const resolvedHost = await resolveSmtpHost();
 
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: resolvedHost.host,
     port: Number(process.env.SMTP_PORT || 587),
     secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
-    family: String(process.env.SMTP_FORCE_IPV4 || "true").toLowerCase() === "true" ? 4 : undefined,
+    name: resolvedHost.servername,
+    tls: {
+      servername: resolvedHost.servername
+    },
     connectionTimeout: getNumberEnv("SMTP_CONNECTION_TIMEOUT_MS", 20000),
     greetingTimeout: getNumberEnv("SMTP_GREETING_TIMEOUT_MS", 20000),
     socketTimeout: getNumberEnv("SMTP_SOCKET_TIMEOUT_MS", 30000),
@@ -151,7 +183,7 @@ const sendEmail = async ({ to, subject, html }) => {
     payload.replyTo = replyTo;
   }
 
-  const info = await buildTransport().sendMail(payload);
+  const info = await (await buildTransport()).sendMail(payload);
 
   return { provider: "smtp", id: info.messageId || "" };
 };
