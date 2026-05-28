@@ -1000,7 +1000,7 @@ export default function BookingSection({ highlight }) {
       setStatusCode(createdBooking.bookingCode || "");
 
       setSuccessMessage(
-        "Thank you. Your booking request has been received. Please wait for the admin's approval by email before continuing to payment."
+        `Thank you. Your booking request has been received. Please save your booking code: ${createdBooking.bookingCode}. You can use it later to check approval and continue payment.`
       );
     } catch (submitError) {
       setError(normalizeError(submitError));
@@ -1504,6 +1504,11 @@ export default function BookingSection({ highlight }) {
               <p>
                 Thank you. Your booking request has been received. Please wait for the admin's approval by email before continuing to payment.
               </p>
+              {bookingResult.booking.bookingCode ? (
+                <p className="mt-2 rounded bg-white/70 p-2 font-semibold text-amber-950">
+                  Please save your booking code: {bookingResult.booking.bookingCode}
+                </p>
+              ) : null}
               <p className="mt-2 text-xs">
                 This page will check approval status automatically. If email is delayed, keep this page open or refresh with your booking code.
               </p>
@@ -1695,10 +1700,26 @@ export default function BookingSection({ highlight }) {
         {bookingResult?.booking ? (
           <div className="mt-5 rounded border bg-white p-4 text-sm text-gray-700">
             <div className="grid gap-2 md:grid-cols-2">
-              <p>
+              <div>
                 <span className="font-semibold text-forest">Booking code:</span>{" "}
-                {bookingResult.booking.bookingCode}
-              </p>
+                <span>{bookingResult.booking.bookingCode}</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const copied = await copyToClipboard(bookingResult.booking.bookingCode);
+                    if (copied) {
+                      setSuccessMessage("Booking code copied.");
+                    }
+                  }}
+                  className="ml-2 inline-flex min-h-8 items-center gap-1 rounded border border-forest px-2 py-1 text-xs font-semibold text-forest transition hover:bg-forest hover:text-white"
+                >
+                  <FiCopy aria-hidden="true" />
+                  Copy
+                </button>
+                <p className="mt-1 text-xs text-gray-500">
+                  Save this code to check approval and continue payment later.
+                </p>
+              </div>
               <p>
                 <span className="font-semibold text-forest">Room:</span>{" "}
                 {bookingResult.booking.roomId?.roomNumber || "-"}{" "}
